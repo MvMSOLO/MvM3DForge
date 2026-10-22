@@ -173,6 +173,12 @@ function Studio() {
   useEffect(() => {
     const onError = (event: ErrorEvent) => {
       const detail = event.message || "Uncaught browser runtime error.";
+      // Chromium can emit this benign layout warning when a ResizeObserver
+      // updates measurements during the same frame. It is not a scene failure
+      // and must not steal focus from an API response or flood the console.
+      if (/^ResizeObserver loop (completed with undelivered notifications|limit exceeded)\.?$/i.test(detail.trim())) {
+        return;
+      }
       addLog(`[ERROR] Runtime: ${detail}`);
       setMessage(detail);
       setActiveTab("console");
