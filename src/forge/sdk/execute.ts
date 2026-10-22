@@ -1248,7 +1248,8 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     ) {
       const forgeGeometry = geometry instanceof PublicObject ? geometry : null;
       const forgeMaterial = isForgeMaterialSpec(material) ? material : null;
-      const runtimeGeometry = forgeGeometry ? new THREE.BufferGeometry() : geometry;
+      const runtimeGeometry: THREE.BufferGeometry =
+        geometry instanceof PublicObject ? new THREE.BufferGeometry() : geometry;
       const runtimeMaterial = forgeMaterial
         ? threeMaterialForSpec(forgeMaterial)
         : material as THREE.Material | THREE.Material[];
