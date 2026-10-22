@@ -325,11 +325,29 @@ function Studio() {
         setTab("console");
         return;
       }
-      setLogs(nextLogs);
+      const noSceneOutput = result.patch.sceneMutation === "none" && result.patch.objects.length === 0;
       const next = applyScriptPatch(project, result.patch);
       setProject(next);
-      const nextClip = result.patch.autoplayClipId ?? result.patch.clips[0]?.id ?? null;
+
+      const previousClipStillExists = Boolean(activeClipId && next.clips.some((clip) => clip.id === activeClipId));
+      const nextClip = previousClipStillExists
+        ? activeClipId
+        : next.autoplayClipId ?? next.clips[0]?.id ?? null;
       setActiveClipId(nextClip);
+
+      if (noSceneOutput) {
+        // Keep playback/selection and the visible project intact for a materials-only run.
+        const hasExistingMesh = project.objects.some((item) => item.type === "mesh");
+        const note = hasExistingMesh
+          ? "No scene objects were created, so the existing model was preserved. PBR material declarations only define materials; assign each material to a mesh in the same script and run the complete model script to apply it."
+          : "No scene objects were created. PBR material declarations define materials only; create a mesh and add it to the scene to see geometry.";
+        setLogs([...nextLogs, `[WARN] ${note}`]);
+        setMessage("No new geometry · existing scene preserved");
+        setTab("console");
+        return;
+      }
+
+      setLogs(nextLogs);
       setIsPlaying(Boolean(nextClip));
       setSelected(null);
       setMessage(`Run complete · ${next.objects.filter((item) => item.type === "mesh").length} meshes · ${next.clips.length} clips`);
