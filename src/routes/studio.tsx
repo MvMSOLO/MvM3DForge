@@ -393,7 +393,7 @@ function Studio() {
 
   const meshes = project?.objects.filter((node) => node.type === "mesh") ?? [];
   return (
-    <main className="flex min-h-screen flex-col bg-[#080d12] text-[#e8f0f6]">
+    <main className="forge-shell flex min-h-screen flex-col bg-[#080d12] text-[#e8f0f6]">
       <header className="forge-topbar flex min-h-[64px] flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-[#0d141c]/90 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3">
           <a href="/" aria-label="Back home" className="grid size-9 place-items-center rounded-lg border border-white/10 text-slate-300 transition hover:border-[#83f0ce]/40 hover:text-[#83f0ce]"><ArrowLeft size={17} /></a>
@@ -403,7 +403,7 @@ function Studio() {
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 hover:border-white/25"><FileUp size={14} /> Open</button>
           <input ref={fileRef} type="file" accept=".json,.mvm.json,application/json" className="hidden" onChange={(event) => { void openProject(event.target.files?.[0]); event.currentTarget.value = ""; }} />
-          <button onClick={() => void copyAIContext()} className="forge-action inline-flex items-center gap-2 rounded-lg border border-[#83f0ce]/25 px-3 py-2 text-xs text-[#83f0ce] hover:border-[#83f0ce]/60"><Sparkles size={14} /> AI context</button>
+          <button onClick={() => void copyAIContext()} className="forge-action inline-flex items-center gap-2 rounded-lg border border-[#83f0ce]/25 px-3 py-2 text-xs text-[#83f0ce] hover:border-[#83f0ce]/60">{copied ? <Check size={14} /> : <Sparkles size={14} />} {copied ? "Copied" : "AI context"}</button>
           <button onClick={saveProject} disabled={!project} className="forge-action inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 hover:border-white/25 disabled:opacity-40"><Save size={14} /> Save project</button>
           <button onClick={() => void exportGlb()} disabled={!project || busy} className="inline-flex items-center gap-2 rounded-lg bg-[#83f0ce] px-3 py-2 text-xs font-semibold text-[#071511] hover:bg-[#a1f7dc] disabled:opacity-50"><Download size={14} /> Export GLB</button>
         </div>
@@ -434,6 +434,12 @@ function Studio() {
             {!project && <div className="absolute inset-0 grid place-items-center text-sm text-slate-500">{busy ? "Starting renderer…" : "Load a starter scene to begin."}</div>}
             <div className="pointer-events-none absolute bottom-3 left-3 rounded-md border border-white/10 bg-[#080d12]/75 px-3 py-2 text-[10px] text-slate-400"><span className="text-[#83f0ce]">●</span> {meshes.length} mesh objects · Y-up · metres</div>
           </div>
+          {Boolean(project?.clips.length) && <div className="forge-timeline flex flex-wrap items-center gap-2 border-t border-white/[.08] bg-[#0b1219] px-3 py-2.5">
+            <button aria-label={isPlaying ? "Pause animation" : "Play animation"} onClick={() => setIsPlaying((value) => !value)} className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#83f0ce] text-[#071511] transition hover:scale-105">{isPlaying ? <Pause size={14} /> : <Play size={14} />}</button>
+            <button aria-label="Restart animation" onClick={() => { setIsPlaying(false); window.requestAnimationFrame(() => setIsPlaying(true)); }} className="grid size-8 shrink-0 place-items-center rounded-lg border border-white/10 text-slate-300 transition hover:border-[#83f0ce]/40 hover:text-[#83f0ce]"><RotateCcw size={13} /></button>
+            <div className="min-w-0 flex-1"><div className="mb-1 text-[9px] uppercase tracking-[.14em] text-slate-600">Animation timeline</div><div className="flex flex-wrap gap-1">{project.clips.map((clip) => <button key={clip.id} onClick={() => { setActiveClipId(clip.id); setIsPlaying(true); }} className={`rounded-md border px-2 py-1 text-[10px] transition ${activeClipId === clip.id ? "border-[#83f0ce]/35 bg-[#83f0ce]/10 text-[#83f0ce]" : "border-white/[.08] text-slate-500 hover:text-slate-200"}`}>{clip.name}</button>)}</div></div>
+            <span className="shrink-0 text-[9px] text-slate-600">{isPlaying ? "PLAYING" : "PAUSED"}</span>
+          </div>}
           <div className="flex items-center justify-between gap-3 border-t border-white/10 bg-[#0d141c] px-4 py-2.5"><div className="flex min-w-0 items-center gap-2 text-[10px] text-slate-500"><span className="size-1.5 shrink-0 rounded-full bg-[#83f0ce]" /> <span className="truncate">{message}</span></div><span className="shrink-0 text-[10px] text-slate-600">{project?.apiVersion ?? "SDK"} </span></div>
         </section>
 
