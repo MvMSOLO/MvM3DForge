@@ -47,7 +47,7 @@ async function connectClient(userId = "user-a", scopes = ["project:read", "scene
 }
 
 function textPayload(result: any): any {
-  const content = result.content.find((item) => item.type === "text" && typeof item.text === "string");
+  const content = result.content.find((item: { type: string; text?: string }) => item.type === "text" && typeof item.text === "string");
   assert.ok(content?.text, "expected a text MCP result");
   return JSON.parse(content.text);
 }
@@ -203,7 +203,7 @@ describe("Remote MCP server end-to-end tool registry", () => {
         arguments: { name: "Should Not Exist" },
       });
       assert.equal(result.isError, true);
-      assert.match(result.content.map((item) => item.type === "text" ? item.text : "").join(" "), /scene:write/);
+      assert.match(result.content.map((item: { type: string; text?: string }) => item.type === "text" ? item.text : "").join(" "), /scene:write/);
       assert.deepEqual(await session.repository.list("reader"), []);
     } finally {
       await session.close();
