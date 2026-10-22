@@ -1350,6 +1350,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
         handle.material = isForgeMaterialSpec(carriedMaterial)
           ? carriedMaterial
           : materialOptions(carriedMaterial as THREE.Material | THREE.Material[]);
+        convertedMeshes += 1;
       } else if (
         (object as THREE.Group).isGroup ||
         (object as THREE.Bone).isBone ||
@@ -1399,7 +1400,6 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       handle.scale.set(object.scale.x, object.scale.y, object.scale.z);
       handle.visible = object.visible;
       importedThreeObjects.set(object, handle);
-      if (meshLike.isMesh && geometryLike?.isBufferGeometry) convertedMeshes += 1;
     }
 
     // Link the entire hierarchy before attaching roots. If a root is attached before its
