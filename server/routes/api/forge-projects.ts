@@ -19,7 +19,7 @@ function requestHeaders(event: H3Event): Headers {
 function originIsAllowed(event: H3Event): boolean {
   const origin = getHeader(event, "origin");
   if (!origin) return true;
-  const host = (getHeader(event, "x-forwarded-host") || getHeader(event, "host") || "").split(",")[0].trim();
+  const host = (getHeader(event, "host") || getHeader(event, "x-forwarded-host") || "").split(",")[0].trim();
   try {
     return new URL(origin).host.toLowerCase() === host.toLowerCase();
   } catch {
@@ -97,7 +97,11 @@ export default defineEventHandler(async (event) => {
       setResponseStatus(event, 400);
       return { error: "A valid project id is required." };
     }
-    await deleteProjectFromDb(userId, id);
+    const deleted = await deleteProjectFromDb(userId, id);
+    if (!deleted) {
+      setResponseStatus(event, 404);
+      return { error: "Project not found." };
+    }
     return { deleted: true };
   }
 
