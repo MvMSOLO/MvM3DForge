@@ -8,7 +8,7 @@ import { deleteProjectFromDb, listUserProjectsFromDb, loadProjectFromDb, savePro
 
 function requestHeaders(event: H3Event): Headers {
   const headers = new Headers();
-  const raw = event.node.req.headers;
+  const raw = event.node?.req?.headers ?? {};
   for (const [name, value] of Object.entries(raw)) {
     if (value == null) continue;
     headers.set(name, Array.isArray(value) ? value.join(", ") : String(value));
@@ -34,6 +34,10 @@ async function getUserId(event: H3Event): Promise<string | null> {
 }
 
 export default defineEventHandler(async (event) => {
+  if (!event.node?.req) {
+    setResponseStatus(event, 500);
+    return { error: "HTTP request context is unavailable." };
+  }
   const method = (event.node.req.method || "GET").toUpperCase();
   if (!originIsAllowed(event)) {
     setResponseStatus(event, 403);
