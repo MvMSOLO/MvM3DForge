@@ -97,6 +97,10 @@ export default defineEventHandler(async (event) => {
 
   const auth = await validateMcpRequestAuth(event);
   if (!auth.authenticated) {
+    if (auth.unavailable) {
+      setResponseStatus(event, 503);
+      return errorBody(-32000, auth.error || "MCP authentication is temporarily unavailable.");
+    }
     setHeader(event, "WWW-Authenticate", 'Bearer realm="mvm3dforge-mcp", error="invalid_token"');
     setResponseStatus(event, 401);
     return errorBody(-32001, auth.error || "Authentication required.");
