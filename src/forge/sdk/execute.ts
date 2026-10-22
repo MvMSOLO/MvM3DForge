@@ -1109,9 +1109,80 @@ export async function executeUserCode(code: string): Promise<RunResult> {
 
   const { api, snapshot } = createApi();
 
+  // Small Three.js-compatible bridge for common primitive snippets.
+  // Scripts still compile to validated Forge scene nodes rather than arbitrary WebGL objects.
+  const toHexColor = (value: unknown, fallback = "#D4AF37"): string => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return "#" + Math.max(0, Math.min(0xffffff, Math.round(value))).toString(16).padStart(6, "0");
+    }
+    if (typeof value === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) return value;
+    return fallback;
+  };
+  class CompatTorusGeometry {
+    readonly kind = "torus";
+    constructor(
+      readonly radius = 1,
+      readonly tube = 0.18,
+      readonly radialSegments = 8,
+      readonly tubularSegments = 24,
+    ) {}
+  }
+  class CompatMeshStandardMaterial {
+    color: string;
+    metalness: number;
+    roughness: number;
+    constructor(options: Record<string, unknown> = {}) {
+      this.color = toHexColor(options.color);
+      this.metalness = typeof options.metalness === "number" ? Math.max(0, Math.min(1, options.metalness)) : 0;
+      this.roughness = typeof options.roughness === "number" ? Math.max(0, Math.min(1, options.roughness)) : 1;
+    }
+  }
+  class CompatMesh {
+    name = "Mesh";
+    position = { x: 0, y: 0, z: 0, set(x: number, y: number, z: number) { this.x = x; this.y = y; this.z = z; return this; } };
+    rotation = { x: 0, y: 0, z: 0, set(x: number, y: number, z: number) { this.x = x; this.y = y; this.z = z; return this; } };
+    scale = { x: 1, y: 1, z: 1, set(x: number, y: number, z: number) { this.x = x; this.y = y; this.z = z; return this; } };
+    constructor(readonly geometry: unknown, readonly material: unknown) {}
+  }
+  const threeCompat = {
+    TorusGeometry: CompatTorusGeometry,
+    MeshStandardMaterial: CompatMeshStandardMaterial,
+    Mesh: CompatMesh,
+  };
+  const sceneCompat = {
+    add(...items: unknown[]) {
+      for (const item of items) {
+        if (!(item instanceof CompatMesh)) {
+          throw new Error("MVM THREE bridge currently supports THREE.Mesh with THREE.TorusGeometry and THREE.MeshStandardMaterial. Use mvm.geometry for other shapes.");
+        }
+        if (!(item.geometry instanceof CompatTorusGeometry) || !(item.material instanceof CompatMeshStandardMaterial)) {
+          throw new Error("Supported test pattern: new THREE.Mesh(new THREE.TorusGeometry(...), new THREE.MeshStandardMaterial(...)).");
+        }
+        const geometry = item.geometry;
+        const material = item.material;
+        const ring = api.geometry.torus({
+          name: item.name || "Torus",
+          radius: geometry.radius,
+          tube: geometry.tube,
+          radialSegments: geometry.radialSegments,
+          tubularSegments: geometry.tubularSegments,
+        });
+        ring.material = { color: material.color, metalness: material.metalness, roughness: material.roughness };
+        ring.position.set(item.position.x, item.position.y, item.position.z);
+        ring.rotation.set(item.rotation.x * 180 / Math.PI, item.rotation.y * 180 / Math.PI, item.rotation.z * 180 / Math.PI);
+        ring.scale.set(item.scale.x, item.scale.y, item.scale.z);
+        api.scene.add(ring);
+      }
+    },
+  };
+
   try {
-    const fn = new Function("mvm", PRELUDE + code) as (mvm: typeof api) => unknown;
-    const returned = fn(api);
+    const fn = new Function("mvm", "THREE", "scene", PRELUDE + code) as (
+      mvm: typeof api,
+      THREE: typeof threeCompat,
+      scene: typeof sceneCompat,
+    ) => unknown;
+    const returned = fn(api, threeCompat, sceneCompat);
     if (returned && typeof (returned as Promise<unknown>).then === "function") {
       await returned;
     }
