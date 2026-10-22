@@ -296,7 +296,7 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
   assert.equal(result.patch.clips[0]?.tracks.length, 2);
   assert.equal(result.patch.clips[0]?.tracks.every((track) => track.objectId === core?.id), true);
   assert.equal(result.patch.autoplayClipId, result.patch.clips[0]?.id);
-  assert.match(result.logs.map((log) => log.message).join("\n"), /discovered [1-9]\d* scene objects and [1-9]\d* mesh objects/);
+  assert.match(result.logs.map((log) => log.message).join("\n"), /discovered [1-9]\d* native scene objects and [1-9]\d* native mesh objects/);
   assert.match(result.logs.map((log) => log.message).join("\n"), /converted 9 mesh objects into Forge nodes/);
 });
 
