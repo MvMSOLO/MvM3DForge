@@ -27,7 +27,7 @@ export function applyScriptPatch(project: Project, patch: ScriptPatch): Project 
 export async function createStarterProject(id: StarterId): Promise<{ project: Project; issues: ScriptPatch["issues"]; logs: { message: string; level: string }[] }> {
   const starter = starterById(id);
   const code = starter.code.trim() ? starter.code : blankCode;
-  let project = projectShell(starter.id === "blank" ? "Untitled" : starter.title, code);
+  let project: Project = projectShell(starter.id === "blank" ? "Untitled" : starter.title, code);
   project = { ...project, description: `${starter.summary} ${starter.limitation}` };
   if (!starter.code.trim()) return { project, issues: [], logs: [] };
   const result = await executeUserCode(starter.code);
