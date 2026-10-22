@@ -108,8 +108,10 @@ export async function listUserProjectsFromDb(userId: string): Promise<Array<{ id
 
 export async function deleteProjectFromDb(userId: string, projectId: string): Promise<boolean> {
   const sql = await getSql();
-  await sql`
-    DELETE FROM projects WHERE id = ${projectId} AND user_id = ${userId}
+  const deleted = await sql<{ id: string }>`
+    DELETE FROM projects
+     WHERE id = ${projectId} AND user_id = ${userId}
+    RETURNING id
   `;
-  return true;
+  return deleted.length > 0;
 }
