@@ -1181,16 +1181,22 @@ export async function executeUserCode(code: string): Promise<RunResult> {
 
   function convertThreeScene() {
     const nodes: THREE.Object3D[] = [];
+    threeScene.updateMatrixWorld(true);
     threeScene.traverse((object) => {
-      if (object !== threeScene && object.isObject3D) nodes.push(object);
+      if (object !== threeScene && (object as THREE.Object3D).isObject3D) nodes.push(object);
     });
+    const discoveredMeshes = nodes.filter((object) => Boolean((object as THREE.Mesh).isMesh));
+    let convertedMeshes = 0;
+    pushLog("info", [`Three.js bridge: discovered ${nodes.length} scene objects and ${discoveredMeshes.length} mesh objects.`]);
 
     // Create handles before linking parents, so child-before-parent insertion works.
     for (const object of nodes) {
       if (importedThreeObjects.has(object)) continue;
       let handle: any;
-      if (object instanceof THREE.Mesh && object.geometry instanceof THREE.BufferGeometry) {
-        const geometry = object.geometry;
+      const meshLike = object as THREE.Mesh;
+      const geometryLike = meshLike.geometry as THREE.BufferGeometry | undefined;
+      if (meshLike.isMesh && geometryLike?.isBufferGeometry) {
+        const geometry = geometryLike;
         const position = geometry.getAttribute("position");
         if (!position || position.count < 3) {
           pushLog("warn", [`Skipped mesh "${object.name || object.type}": geometry has no valid position attribute.`]);
@@ -1218,15 +1224,16 @@ export async function executeUserCode(code: string): Promise<RunResult> {
         });
         handle.material = materialOptions(object.material as THREE.Material | THREE.Material[]);
       } else if (
-        object instanceof THREE.Group ||
-        object instanceof THREE.Bone ||
-        object instanceof THREE.Camera ||
+        (object as THREE.Group).isGroup ||
+        (object as THREE.Bone).isBone ||
+        (object as THREE.Camera).isCamera ||
         object.constructor === THREE.Object3D
       ) {
         handle = api.scene.group({ name: object.name || object.type || "Group" });
-      } else if (object instanceof THREE.PointLight) {
-        handle = api.light.point({ name: object.name || "Point Light", color: "#" + object.color.getHexString(), intensity: object.intensity, distance: object.distance, decay: object.decay });
-      } else if (object instanceof THREE.SpotLight) {
+      } else if ((object as THREE.PointLight).isPointLight && !(object as THREE.SpotLight).isSpotLight) {
+        const light = object as THREE.PointLight;
+        handle = api.light.point({ name: object.name || "Point Light", color: "#" + light.color.getHexString(), intensity: light.intensity, distance: light.distance, decay: light.decay });
+      } else if ((object as THREE.SpotLight).isSpotLight) {
         handle = api.light.spot({
           name: object.name || "Spot Light",
           color: "#" + object.color.getHexString(),
@@ -1238,18 +1245,21 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           castShadow: object.castShadow,
           target: [object.target.position.x, object.target.position.y, object.target.position.z],
         });
-      } else if (object instanceof THREE.DirectionalLight) {
+      } else if ((object as THREE.DirectionalLight).isDirectionalLight) {
+        const light = object as THREE.DirectionalLight;
         handle = api.light.directional({
           name: object.name || "Directional Light",
-          color: "#" + object.color.getHexString(),
-          intensity: object.intensity,
-          castShadow: object.castShadow,
-          target: [object.target.position.x, object.target.position.y, object.target.position.z],
+          color: "#" + light.color.getHexString(),
+          intensity: light.intensity,
+          castShadow: light.castShadow,
+          target: [light.target.position.x, light.target.position.y, light.target.position.z],
         });
-      } else if (object instanceof THREE.HemisphereLight) {
-        handle = api.light.hemisphere({ name: object.name || "Hemisphere Light", color: "#" + object.color.getHexString(), groundColor: "#" + object.groundColor.getHexString(), intensity: object.intensity });
-      } else if (object instanceof THREE.AmbientLight) {
-        handle = api.light.ambient({ name: object.name || "Ambient Light", color: "#" + object.color.getHexString(), intensity: object.intensity });
+      } else if ((object as THREE.HemisphereLight).isHemisphereLight) {
+        const light = object as THREE.HemisphereLight;
+        handle = api.light.hemisphere({ name: object.name || "Hemisphere Light", color: "#" + light.color.getHexString(), groundColor: "#" + light.groundColor.getHexString(), intensity: light.intensity });
+      } else if ((object as THREE.AmbientLight).isAmbientLight) {
+        const light = object as THREE.AmbientLight;
+        handle = api.light.ambient({ name: object.name || "Ambient Light", color: "#" + light.color.getHexString(), intensity: light.intensity });
       }
       if (!handle) continue;
       handle.position.set(object.position.x, object.position.y, object.position.z);
@@ -1261,6 +1271,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       handle.scale.set(object.scale.x, object.scale.y, object.scale.z);
       handle.visible = object.visible;
       importedThreeObjects.set(object, handle);
+      if (meshLike.isMesh && geometryLike?.isBufferGeometry) convertedMeshes += 1;
     }
 
     for (const object of nodes) {
@@ -1274,6 +1285,10 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     if (threeScene.background instanceof THREE.Color) {
       const c = threeScene.background;
       api.scene.background("#" + c.getHexString());
+    }
+    pushLog("info", [`Three.js bridge: converted ${convertedMeshes} mesh objects into Forge nodes.`]);
+    if (discoveredMeshes.length > 0 && convertedMeshes === 0) {
+      pushLog("error", ["Three.js meshes were found but none could be converted. Check the mesh geometry and the console warnings above."]);
     }
   }
 
