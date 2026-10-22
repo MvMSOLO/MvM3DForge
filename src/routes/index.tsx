@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Box, Braces, Layers3, ArrowUpRight, CircleDot } from "lucide-react";
+import { Box, Braces, Layers3, ArrowUpRight, CircleDot, LogIn } from "lucide-react";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -44,9 +44,14 @@ function Home() {
               <span className="mt-1 block text-[10px] uppercase tracking-[0.2em] text-[#71808f]">Code-first 3D studio</span>
             </span>
           </a>
-          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-[11px] text-[#a9b7c5]">
-            <CircleDot size={12} className="text-[#83f0ce]" />
-            <span>Developer preview</span>
+          <div className="flex items-center gap-3">
+            <a href="/login" className="inline-flex items-center gap-2 rounded-lg border border-[#83f0ce]/25 px-3 py-2 text-xs font-semibold text-[#bff8e8] no-underline transition hover:border-[#83f0ce]/60 hover:bg-[#83f0ce]/[0.06]">
+              <LogIn size={14} /> Sign in
+            </a>
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-[11px] text-[#a9b7c5]">
+              <CircleDot size={12} className="text-[#83f0ce]" />
+              <span>Developer preview</span>
+            </div>
           </div>
         </header>
 
