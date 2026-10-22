@@ -1,8 +1,9 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { getSql } from "@/lib/db";
+import { hashMcpApiKey, normalizeMcpScopes, MCP_SCOPES, type McpScope } from "./api-keys-primitives.ts";
 
-export const MCP_SCOPES = ["project:read", "scene:write", "assets:export"] as const;
-export type McpScope = (typeof MCP_SCOPES)[number];
+export { MCP_SCOPES, hashMcpApiKey, normalizeMcpScopes } from "./api-keys-primitives.ts";
+export type { McpScope } from "./api-keys-primitives.ts";
 
 export interface McpApiKeyRow {
   id: string;
@@ -26,19 +27,6 @@ export interface PublicMcpApiKey {
   lastUsedAt: number | null;
   expiresAt: number | null;
   revokedAt: number | null;
-}
-
-export function hashMcpApiKey(token: string): string {
-  return createHash("sha256").update(token, "utf8").digest("hex");
-}
-
-export function normalizeMcpScopes(value: unknown): McpScope[] {
-  if (!Array.isArray(value)) throw new Error("scopes must be an array.");
-  const scopes = [...new Set(value)];
-  if (scopes.length < 1 || scopes.some((scope) => typeof scope !== "string" || !MCP_SCOPES.includes(scope as McpScope))) {
-    throw new Error("Select one or more supported scopes.");
-  }
-  return scopes as McpScope[];
 }
 
 function publicKey(row: McpApiKeyRow): PublicMcpApiKey {
