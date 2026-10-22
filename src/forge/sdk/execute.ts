@@ -1118,6 +1118,9 @@ export async function executeUserCode(code: string): Promise<RunResult> {
 
   function materialOptions(material: THREE.Material | THREE.Material[]) {
     const m = Array.isArray(material) ? material[0] : material;
+    if (Array.isArray(material) && material.length > 1) {
+      pushLog("warn", [`Mesh uses ${material.length} materials; Forge currently preserves only the first material. Geometry groups may therefore lose their original per-face material assignments.`]);
+    }
     if (!(m instanceof THREE.MeshStandardMaterial) && !(m instanceof THREE.MeshPhysicalMaterial)
       && !(m instanceof THREE.MeshPhongMaterial) && !(m instanceof THREE.MeshLambertMaterial)
       && !(m instanceof THREE.MeshBasicMaterial)) {
@@ -1127,6 +1130,21 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     const color = pbr.color instanceof THREE.Color ? "#" + pbr.color.getHexString() : "#D4AF37";
     const emissive = pbr.emissive instanceof THREE.Color ? "#" + pbr.emissive.getHexString() : "#000000";
     const side = m.side === THREE.DoubleSide ? "double" : m.side === THREE.BackSide ? "back" : "front";
+    if (m instanceof THREE.MeshStandardMaterial || m instanceof THREE.MeshPhysicalMaterial) {
+      const mapped = [
+        ["map", pbr.map],
+        ["normalMap", pbr.normalMap],
+        ["roughnessMap", pbr.roughnessMap],
+        ["metalnessMap", pbr.metalnessMap],
+        ["aoMap", pbr.aoMap],
+      ].filter(([, texture]) => Boolean(texture)).map(([slot]) => slot);
+      if (mapped.length) {
+        pushLog("warn", [`Material "${m.name || m.type}" has texture maps (${mapped.join(", ")}); current scene conversion preserves base material values but not these external texture pixels.`]);
+      }
+    }
+    if (m instanceof THREE.ShaderMaterial || m instanceof THREE.RawShaderMaterial) {
+      pushLog("warn", [`Shader material "${m.name || m.type}" cannot be represented in the Forge PBR schema; using a fallback material.`]);
+    }
     return {
       color,
       metalness: typeof pbr.metalness === "number" ? pbr.metalness : 0,
@@ -1140,13 +1158,31 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     };
   }
 
+  function attributeValues(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, itemSize: number, label: string): number[] {
+    if (attribute.itemSize < itemSize) {
+      throw new ForgeError("MVM_E_GEOMETRY_CUSTOM_INVALID", `Three.js ${label} attribute itemSize is ${attribute.itemSize}; expected at least ${itemSize}.`);
+    }
+    const values: number[] = [];
+    for (let i = 0; i < attribute.count; i += 1) {
+      for (let component = 0; component < itemSize; component += 1) {
+        const value = component === 0 ? attribute.getX(i)
+          : component === 1 ? attribute.getY(i)
+          : component === 2 ? attribute.getZ(i)
+          : component === 3 ? attribute.getW(i)
+          : Number.NaN;
+        if (!Number.isFinite(value)) {
+          throw new ForgeError("MVM_E_GEOMETRY_CUSTOM_INVALID", `Three.js ${label} attribute contains a non-finite value at vertex ${i}.`);
+        }
+        values.push(value);
+      }
+    }
+    return values;
+  }
+
   function convertThreeScene() {
     const nodes: THREE.Object3D[] = [];
     threeScene.traverse((object) => {
-      if (object !== threeScene && (object instanceof THREE.Mesh || object instanceof THREE.Group
-        || object instanceof THREE.PointLight || object instanceof THREE.DirectionalLight
-        || object instanceof THREE.SpotLight || object instanceof THREE.AmbientLight
-        || object instanceof THREE.HemisphereLight)) nodes.push(object);
+      if (object !== threeScene && object.isObject3D) nodes.push(object);
     });
 
     // Create handles before linking parents, so child-before-parent insertion works.
@@ -1163,7 +1199,13 @@ export async function executeUserCode(code: string): Promise<RunResult> {
         if (position.count > LIMITS.maxVerticesPerMesh) {
           throw new ForgeError("MVM_E_GEOMETRY_CUSTOM_INVALID", `Mesh "${object.name || object.type}" exceeds the ${LIMITS.maxVerticesPerMesh} vertex limit.`);
         }
-        const positions = Array.from(position.array as ArrayLike<number>);
+        if (object instanceof THREE.SkinnedMesh || geometry.morphAttributes.position?.length) {
+          pushLog("warn", [`Mesh "${object.name || object.type}" uses skinning or morph targets. This converter currently preserves its base geometry only; deformation/rig animation will not carry into Forge.`]);
+        }
+        if (geometry.groups.length > 0 && Array.isArray(object.material) && object.material.length > 1) {
+          pushLog("warn", [`Mesh "${object.name || object.type}" has geometry groups with multiple materials; those per-group assignments are not preserved yet.`]);
+        }
+        const positions = attributeValues(position, 3, "position");
         const index = geometry.getIndex();
         const normals = geometry.getAttribute("normal");
         const uv = geometry.getAttribute("uv");
@@ -1171,12 +1213,12 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           name: object.name || object.type,
           positions,
           indices: index ? Array.from(index.array as ArrayLike<number>) : undefined,
-          normals: normals ? Array.from(normals.array as ArrayLike<number>) : undefined,
-          uvs: uv ? Array.from(uv.array as ArrayLike<number>) : undefined,
+          normals: normals ? attributeValues(normals, 3, "normal") : undefined,
+          uvs: uv ? attributeValues(uv, 2, "uv") : undefined,
         });
         handle.material = materialOptions(object.material as THREE.Material | THREE.Material[]);
-      } else if (object instanceof THREE.Group) {
-        handle = api.scene.group({ name: object.name || "Group" });
+      } else if (object instanceof THREE.Group || object instanceof THREE.Bone || object instanceof THREE.Object3D) {
+        handle = api.scene.group({ name: object.name || object.type || "Group" });
       } else if (object instanceof THREE.PointLight) {
         handle = api.light.point({ name: object.name || "Point Light", color: "#" + object.color.getHexString(), intensity: object.intensity, distance: object.distance, decay: object.decay });
       } else if (object instanceof THREE.SpotLight) {
