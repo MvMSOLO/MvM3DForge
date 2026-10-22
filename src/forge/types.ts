@@ -58,6 +58,8 @@ export type TextureColorSpace = "srgb" | "linear";
 export type TextureGenerator = "checker" | "stripes" | "dots" | "gradient" | "noise" | "solid";
 
 export type MaterialSpec = {
+  /** Optional display/export name supplied through mvm.material.pbr({ name }). */
+  name?: string;
   color: string;
   roughness: number;
   metalness: number;
@@ -228,7 +230,11 @@ export type ExportRequest = {
   includeAnimations?: boolean;
 };
 
+export type ScriptSceneMutation = "none" | "replace" | "clear";
+
 export type ScriptPatch = {
+  /** Whether the script generated a scene, explicitly cleared it, or only changed settings/assets. */
+  sceneMutation?: ScriptSceneMutation;
   objects: SceneNode[];
   textures: TextureAsset[];
   clips: AnimClip[];
