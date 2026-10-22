@@ -1220,6 +1220,53 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     };
   }
 
+  function threeMaterialForSpec(spec: MaterialSpec): THREE.MeshStandardMaterial {
+    const material = new THREE.MeshStandardMaterial({
+      color: spec.color,
+      roughness: spec.roughness,
+      metalness: spec.metalness,
+      emissive: spec.emissive,
+      emissiveIntensity: spec.emissiveIntensity,
+      opacity: spec.opacity,
+      transparent: spec.alphaMode === "BLEND" || spec.opacity < 0.999,
+      side: spec.side === "double" ? THREE.DoubleSide : spec.side === "back" ? THREE.BackSide : THREE.FrontSide,
+      depthWrite: spec.alphaMode !== "BLEND",
+    });
+    if (spec.alphaMode === "MASK") material.alphaTest = spec.alphaCutoff;
+    return material;
+  }
+
+  // The public SDK can be used in the same expression style as native Three.js:
+  // new THREE.Mesh(mvm.geometry.box(...), mvm.material.pbr(...)).
+  // A real THREE.Mesh constructor requires BufferGeometry and a THREE.Material, so
+  // adapt Forge handles/specs into safe native placeholders while keeping exact Forge
+  // values in userData for lossless conversion after the script runs.
+  class ForgeCompatibleMesh extends THREE.Mesh {
+    constructor(
+      geometry: THREE.BufferGeometry | PublicObject,
+      material: THREE.Material | MaterialSpec | THREE.Material[] = new THREE.MeshStandardMaterial(),
+    ) {
+      const forgeGeometry = geometry instanceof PublicObject ? geometry : null;
+      const forgeMaterial = isForgeMaterialSpec(material) ? material : null;
+      const runtimeGeometry = forgeGeometry ? new THREE.BufferGeometry() : geometry;
+      const runtimeMaterial = forgeMaterial
+        ? threeMaterialForSpec(forgeMaterial)
+        : material as THREE.Material | THREE.Material[];
+      super(runtimeGeometry, runtimeMaterial);
+      if (forgeGeometry) this.userData.mvmForgeGeometry = forgeGeometry;
+      if (forgeMaterial) this.userData.mvmForgeMaterial = forgeMaterial;
+    }
+  }
+
+  // Expose all normal Three.js constructors with only Mesh adapted. Native BufferGeometry
+  // + THREE.Material pairs continue to use the exact regular Three.js behavior.
+  const runtimeTHREE = Object.create(THREE) as typeof THREE;
+  Object.defineProperty(runtimeTHREE, "Mesh", {
+    configurable: true,
+    enumerable: true,
+    value: ForgeCompatibleMesh,
+  });
+
   function attributeValues(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, itemSize: number, label: string): number[] {
     if (attribute.itemSize < itemSize) {
       throw new ForgeError("MVM_E_GEOMETRY_CUSTOM_INVALID", `Three.js ${label} attribute itemSize is ${attribute.itemSize}; expected at least ${itemSize}.`);
@@ -1258,17 +1305,18 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       let handle: any;
       const meshLike = object as THREE.Mesh;
       const geometryLike = meshLike.geometry as THREE.BufferGeometry | undefined;
-      const rawGeometry: unknown = meshLike.geometry;
+      const rawGeometry: unknown = meshLike.userData?.mvmForgeGeometry ?? meshLike.geometry;
+      const carriedMaterial: unknown = meshLike.userData?.mvmForgeMaterial ?? meshLike.material;
       if (meshLike.isMesh && rawGeometry instanceof PublicObject) {
         // mvm.geometry.box/sphere/torus return Forge mesh handles (GeometrySpec), not
         // Three.js BufferGeometry objects. If users wrap one in THREE.Mesh, reuse that
         // Forge handle and copy the native mesh's name, transform, visibility and material.
         handle = rawGeometry;
         handle.name = object.name || handle.name || object.type || "Mesh";
-        if (isForgeMaterialSpec(meshLike.material)) {
-          handle.material = meshLike.material;
+        if (isForgeMaterialSpec(carriedMaterial)) {
+          handle.material = carriedMaterial;
         } else {
-          handle.material = materialOptions(meshLike.material as THREE.Material | THREE.Material[]);
+          handle.material = materialOptions(carriedMaterial as THREE.Material | THREE.Material[]);
         }
         convertedMeshes += 1;
       } else if (meshLike.isMesh && geometryLike?.isBufferGeometry) {
@@ -1298,9 +1346,9 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           normals: normals ? attributeValues(normals, 3, "normal") : undefined,
           uvs: uv ? attributeValues(uv, 2, "uv") : undefined,
         });
-        handle.material = isForgeMaterialSpec(meshLike.material)
-          ? meshLike.material
-          : materialOptions(meshLike.material as THREE.Material | THREE.Material[]);
+        handle.material = isForgeMaterialSpec(carriedMaterial)
+          ? carriedMaterial
+          : materialOptions(carriedMaterial as THREE.Material | THREE.Material[]);
       } else if (
         (object as THREE.Group).isGroup ||
         (object as THREE.Bone).isBone ||
@@ -1420,7 +1468,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       scene: THREE.Scene,
       console: typeof scriptConsole,
     ) => unknown;
-    const returned = fn(api, THREE, threeScene, scriptConsole);
+    const returned = fn(api, runtimeTHREE, threeScene, scriptConsole);
     if (returned && typeof (returned as Promise<unknown>).then === "function") {
       await returned;
     }
