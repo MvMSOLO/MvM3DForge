@@ -184,7 +184,7 @@ describe("Remote MCP server end-to-end tool registry", () => {
         arguments: { projectId: created.projectId },
       });
       assert.equal(result.isError, undefined);
-      const resourceContent = result.content.find((item) => item.type === "resource") as any;
+      const resourceContent = result.content.find((item: { type: string }) => item.type === "resource") as any;
       assert.equal(resourceContent?.resource?.mimeType, "model/gltf-binary");
       assert.ok(typeof resourceContent?.resource?.blob === "string");
       const bytes = Buffer.from(resourceContent.resource.blob, "base64");
@@ -223,7 +223,7 @@ describe("Remote MCP server end-to-end tool registry", () => {
         arguments: { projectId: "private-bob-project" },
       });
       assert.equal(result.isError, true);
-      assert.match(result.content.map((item) => item.type === "text" ? item.text : "").join(" "), /access denied/);
+      assert.match(result.content.map((item: { type: string; text?: string }) => item.type === "text" ? item.text : "").join(" "), /access denied/);
     } finally {
       await session.close();
     }
