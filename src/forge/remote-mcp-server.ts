@@ -8,7 +8,6 @@ import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { makeNode } from "./nodes.ts";
 import { defaultMaterial } from "./materials.ts";
 import type { GeometrySpec, LightSpec, Project } from "./types.ts";
-import { loadProjectFromDb, listUserProjectsFromDb, saveProjectToDb } from "../lib/projects.server.ts";
 import type { McpScope } from "../lib/mcp/api-keys-primitives.ts";
 
 export interface RemoteMcpContext {
@@ -23,9 +22,18 @@ export interface McpProjectRepository {
 }
 
 const databaseProjectRepository: McpProjectRepository = {
-  list: listUserProjectsFromDb,
-  load: loadProjectFromDb,
-  save: saveProjectToDb,
+  async list(userId) {
+    const { listUserProjectsFromDb } = await import("../lib/projects.server.ts");
+    return listUserProjectsFromDb(userId);
+  },
+  async load(userId, projectId) {
+    const { loadProjectFromDb } = await import("../lib/projects.server.ts");
+    return loadProjectFromDb(userId, projectId);
+  },
+  async save(userId, project) {
+    const { saveProjectToDb } = await import("../lib/projects.server.ts");
+    return saveProjectToDb(userId, project);
+  },
 };
 
 type JsonRecord = Record<string, unknown>;
