@@ -23,7 +23,7 @@ async function signedInUserId(event: H3Event): Promise<string | null> {
 function originIsAllowed(event: H3Event): boolean {
   const origin = getHeader(event, "origin");
   if (!origin) return true;
-  const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+  const host = getHeader(event, "host") || getHeader(event, "x-forwarded-host");
   if (!host) return false;
   try {
     return new URL(origin).host.toLowerCase() === host.split(",")[0].trim().toLowerCase();
