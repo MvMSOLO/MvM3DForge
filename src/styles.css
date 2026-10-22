@@ -29,3 +29,191 @@ button:not(:disabled), [role="button"]:not(:disabled) {
   color: #07110f;
   background: #83f0ce;
 }
+
+
+/* MVM 3D Forge — next-generation studio surface system */
+html {
+  scroll-behavior: smooth;
+  scrollbar-color: #293a45 #090f15;
+}
+body {
+  background:
+    radial-gradient(ellipse at 52% -12%, rgba(52, 122, 133, .16), transparent 48%),
+    #080d12;
+}
+button, a, textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+button:focus-visible, a:focus-visible, textarea:focus-visible {
+  outline: 2px solid #83f0ce;
+  outline-offset: 3px;
+}
+::selection {
+  color: #07110f;
+  background: #83f0ce;
+}
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: #080d12;
+}
+::-webkit-scrollbar-thumb {
+  background: #263641;
+  border: 2px solid #080d12;
+  border-radius: 20px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3d5962;
+}
+.forge-shell {
+  isolation: isolate;
+  background-image:
+    radial-gradient(ellipse at 48% 0%, rgba(55, 118, 130, .10), transparent 52%),
+    linear-gradient(180deg, rgba(10, 17, 24, .98), rgba(7, 12, 17, 1));
+}
+.forge-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(20px) saturate(140%);
+  box-shadow: 0 1px 0 rgba(255,255,255,.025), 0 12px 36px rgba(0,0,0,.12);
+}
+.forge-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.2);
+}
+.forge-workspace > aside,
+.forge-workbench,
+.forge-viewport-panel {
+  min-width: 0;
+  background-image: linear-gradient(150deg, rgba(255,255,255,.012), transparent 44%);
+}
+.forge-viewport-panel {
+  position: relative;
+}
+.forge-viewport-panel::before {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(131,240,206,.22), transparent);
+  pointer-events: none;
+}
+.forge-workbench {
+  box-shadow: inset 1px 0 rgba(255,255,255,.018);
+}
+.forge-tab {
+  position: relative;
+}
+.forge-tab[aria-selected="true"]::after {
+  position: absolute;
+  bottom: -2px;
+  left: 25%;
+  right: 25%;
+  height: 2px;
+  border-radius: 2px;
+  background: #83f0ce;
+  content: "";
+}
+.forge-console {
+  background:
+    radial-gradient(ellipse at 0% 0%, rgba(55, 110, 123, .07), transparent 52%),
+    #090f15;
+}
+.forge-log-row {
+  overflow-wrap: anywhere;
+  animation: forge-log-enter 180ms ease both;
+}
+.forge-log-error {
+  color: #ff777f;
+  background: linear-gradient(90deg, rgba(255, 74, 89, .09), transparent 85%);
+  border-left: 2px solid #ff5264;
+  padding-left: 10px;
+}
+.forge-log-warn {
+  color: #f3c879;
+  background: linear-gradient(90deg, rgba(243, 200, 121, .055), transparent 85%);
+  border-left: 2px solid rgba(243, 200, 121, .65);
+  padding-left: 10px;
+}
+.forge-integrations {
+  background:
+    radial-gradient(ellipse at 100% 0%, rgba(57, 132, 132, .08), transparent 42%),
+    #090f15;
+}
+.forge-integration-card {
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+.forge-integration-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(131,240,206,.23);
+  background-color: rgba(131,240,206,.035);
+}
+.forge-status {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 2px 6px;
+  font: 700 8px/1.4 "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing: .07em;
+}
+.forge-status-live {
+  color: #83f0ce;
+  border-color: rgba(131,240,206,.2);
+  background: rgba(131,240,206,.075);
+}
+.forge-status-partial {
+  color: #f0c777;
+  border-color: rgba(240,199,119,.2);
+  background: rgba(240,199,119,.065);
+}
+.forge-status-roadmap {
+  color: #9aa8b7;
+  border-color: rgba(154,168,183,.16);
+  background: rgba(154,168,183,.05);
+}
+.forge-timeline {
+  animation: forge-panel-in 220ms ease both;
+}
+.forge-footer {
+  background-image: linear-gradient(90deg, rgba(131,240,206,.025), transparent 60%);
+}
+@keyframes forge-log-enter {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes forge-panel-in {
+  from { opacity: .65; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+@media (max-width: 1023px) {
+  .forge-topbar {
+    position: relative;
+  }
+  .forge-workspace > aside {
+    max-height: 42vh;
+    overflow: auto;
+  }
+}
