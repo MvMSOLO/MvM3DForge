@@ -1,12 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { Project, GeometrySpec } from "@/forge/types.ts";
-import { createStarterProject } from "@/forge/project.ts";
-import { buildMCPSceneResource } from "@/forge/ai-mcp.ts";
-import { assembleScene, animationClips } from "@/forge/scene-three.ts";
+import type { Project, GeometrySpec } from "./types.ts";
+import { createStarterProject } from "./project.ts";
+import { buildMCPSceneResource } from "./ai-mcp.ts";
+import { assembleScene, animationClips } from "./scene-three.ts";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
-import { makeNode, projectShell } from "@/forge/nodes.ts";
-import { defaultMaterial } from "@/forge/materials.ts";
+import { makeNode, projectShell } from "./nodes.ts";
+import { defaultMaterial } from "./materials.ts";
 
 const projectStore = new Map<string, Project>();
 
