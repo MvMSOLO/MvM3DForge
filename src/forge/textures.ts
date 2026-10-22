@@ -95,7 +95,11 @@ export function canvasFromPixels(data: Uint8ClampedArray, width: number, height:
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("2D canvas is unavailable.");
-  ctx.putImageData(new ImageData(data, width, height), 0, 0);
+  // Copy into a fresh ArrayBuffer-backed view: the source may be typed over SharedArrayBuffer,
+  // which the DOM ImageData constructor does not accept under strict TypeScript typings.
+  const imageData = new Uint8ClampedArray(data.length);
+  imageData.set(data);
+  ctx.putImageData(new ImageData(imageData, width, height), 0, 0);
   return canvas;
 }
 
