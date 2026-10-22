@@ -66,6 +66,7 @@ export async function materialFor(
   mode: "material" | "solid" | "wireframe",
 ): Promise<THREE.MeshStandardMaterial> {
   const material = new THREE.MeshStandardMaterial();
+  material.name = spec.name ?? "";
   if (mode === "solid") {
     material.color.set(spec.color);
     material.roughness = 0.82;
