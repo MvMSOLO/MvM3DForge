@@ -84,8 +84,8 @@ export function McpApiKeysPanel() {
           expiresInDays: expiresInDays === "never" ? null : Number(expiresInDays),
         }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not create API key.");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Could not create API key (HTTP ${response.status}).`);
       setNewKey(data.key);
       setMessage("Key created. Copy it now; the full secret will not be shown again.");
       setName("My AI client");
@@ -115,8 +115,8 @@ export function McpApiKeysPanel() {
         method: "DELETE",
         credentials: "same-origin",
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not revoke API key.");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Could not revoke API key (HTTP ${response.status}).`);
       setMessage("API key revoked.");
       await reload();
     } catch (e) {
