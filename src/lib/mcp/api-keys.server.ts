@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { getSql } from "@/lib/db";
-import { hashMcpApiKey, normalizeMcpScopes, MCP_SCOPES, type McpScope } from "./api-keys-primitives.ts";
+import { hashMcpApiKey, normalizeMcpScopes, type McpScope } from "./api-keys-primitives.ts";
 
 export { MCP_SCOPES, hashMcpApiKey, normalizeMcpScopes } from "./api-keys-primitives.ts";
 export type { McpScope } from "./api-keys-primitives.ts";
