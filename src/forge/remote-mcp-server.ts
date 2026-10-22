@@ -96,11 +96,11 @@ export function createPersistedMcpServer(
   async function getWritableProject(projectId?: string): Promise<Project> {
     requireScope("scene:write");
     if (!projectId) {
-      const projects = await listUserProjectsFromDb(context.userId);
+      const projects = await repository.list(context.userId);
       if (!projects.length) throw new Error("No saved projects yet. Call create_project first.");
       projectId = projects[0].id;
     }
-    const project = await loadProjectFromDb(context.userId, projectId);
+    const project = await repository.load(context.userId, projectId);
     if (!project || project.author !== context.userId) {
       throw new Error("Project not found or access denied.");
     }
@@ -109,7 +109,7 @@ export function createPersistedMcpServer(
 
   async function persist(project: Project): Promise<Project> {
     const owned = { ...project, author: context.userId, updatedAt: Date.now() };
-    await saveProjectToDb(context.userId, owned);
+    await repository.save(context.userId, owned);
     return owned;
   }
 
@@ -166,7 +166,7 @@ export function createPersistedMcpServer(
   );
 
   register("list_projects", "List saved projects owned by the authenticated user.", {}, "project:read", async () => ({
-    projects: await listUserProjectsFromDb(context.userId),
+    projects: await repository.list(context.userId),
   }));
 
   register("get_project", "Retrieve a saved project including scene graph and source code.", {
