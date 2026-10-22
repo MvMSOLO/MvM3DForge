@@ -69,6 +69,27 @@ test("humanoid is a group of parts with feet near the ground", async () => {
   }
 });
 
+test("animation.play marks the clip for viewport autoplay", async () => {
+  const result = await executeUserCode(`
+    const target = mvm.geometry.box({ width: 1, height: 1, depth: 1 });
+    mvm.scene.add(target);
+    const clip = mvm.animation.clip({ name: "Move", duration: 1, loop: true });
+    mvm.animation.track(clip, {
+      object: target,
+      property: "position",
+      keys: [
+        { time: 0, value: [0, 0, 0] },
+        { time: 1, value: [0, 1, 0] },
+      ],
+    });
+    mvm.animation.play("Move");
+  `);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.patch.autoplayClipId, result.patch.clips[0]?.id);
+  assert.equal(result.patch.clips[0]?.name, "Move");
+});
+
 test("animation track and export request are recorded", async () => {
   const starter = starters.find((item) => item.id === "roundtrip");
   assert.ok(starter);
