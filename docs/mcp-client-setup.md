@@ -1,12 +1,12 @@
 # MvM 3D Forge Remote MCP (API-key authentication)
 
-**Endpoint:** `https://mvm3dforge.vercel.app/mcp`  
+**Endpoint:** `https://mvm3d.vercel.app/mcp`  
 **Transport:** MCP Streamable HTTP (stateless requests)  
 **Authentication:** MvM 3D Forge API key in an HTTP Bearer header; OAuth is not used.
 
 ## Create an API key
 
-1. Sign in to MvM 3D Forge and open [Studio](https://mvm3dforge.vercel.app/studio).
+1. Sign in to MvM 3D Forge and open [Studio](https://mvm3d.vercel.app/studio).
 2. Open the **3D stack / Integrations** tab.
 3. In **Remote MCP API keys**, enter a recognizable name, choose only the scopes the client needs, and set an expiry.
 4. Select **Create API key**, then copy the full `mvmf_live_…` secret immediately. It is shown only once. The database stores only its SHA-256 digest; it cannot be retrieved later.
@@ -31,8 +31,8 @@ For a client that supports remote Streamable HTTP servers and custom headers, ad
 ```json
 {
   "mcpServers": {
-    "mvm3dforge": {
-      "url": "https://mvm3dforge.vercel.app/mcp",
+    "mvm3d": {
+      "url": "https://mvm3d.vercel.app/mcp",
       "headers": {
         "Authorization": "Bearer ${MVM_MCP_KEY}"
       }
@@ -50,7 +50,7 @@ Set `MVM_MCP_KEY` in your shell to the API key copied from Studio. Never substit
 Initialize:
 
 ```bash
-curl --fail-with-body -sS https://mvm3dforge.vercel.app/mcp \
+curl --fail-with-body -sS https://mvm3d.vercel.app/mcp \
   -H "Authorization: Bearer ${MVM_MCP_KEY}" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
@@ -60,7 +60,7 @@ curl --fail-with-body -sS https://mvm3dforge.vercel.app/mcp \
 List tools (send the protocol version returned by initialize; this example uses the stable 2025-era version):
 
 ```bash
-curl --fail-with-body -sS https://mvm3dforge.vercel.app/mcp \
+curl --fail-with-body -sS https://mvm3d.vercel.app/mcp \
   -H "Authorization: Bearer ${MVM_MCP_KEY}" \
   -H "MCP-Protocol-Version: 2025-11-25" \
   -H "Content-Type: application/json" \

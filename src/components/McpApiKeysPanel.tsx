@@ -178,7 +178,7 @@ export function McpApiKeysPanel() {
             <p className="mt-1 text-[10px] text-slate-500">Create a private credential for an external MCP client. OAuth is not used.</p>
           </div>
         </div>
-        <a href="https://mvm3dforge.vercel.app/mcp" target="_blank" rel="noreferrer" className="text-[10px] text-[#83f0ce] hover:underline">
+        <a href="/mcp" target="_blank" rel="noreferrer" className="text-[10px] text-[#83f0ce] hover:underline">
           MCP endpoint ↗
         </a>
       </div>
