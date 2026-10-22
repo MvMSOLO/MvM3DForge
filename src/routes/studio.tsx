@@ -258,7 +258,12 @@ function Studio() {
       };
       tick();
     })().catch((error: unknown) => {
-      if (!disposed) setMessage(error instanceof Error ? error.message : "Could not render this scene.");
+      if (!disposed) {
+        const detail = error instanceof Error ? error.message : "Could not render this scene.";
+        setLogs((current) => [...current, `[ERROR] Renderer: ${detail}`]);
+        setMessage(detail);
+        setTab("console");
+      }
     });
 
     return () => {
