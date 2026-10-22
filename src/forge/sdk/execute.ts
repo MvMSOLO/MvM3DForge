@@ -1217,7 +1217,12 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           uvs: uv ? attributeValues(uv, 2, "uv") : undefined,
         });
         handle.material = materialOptions(object.material as THREE.Material | THREE.Material[]);
-      } else if (object instanceof THREE.Group || object instanceof THREE.Bone || object instanceof THREE.Object3D) {
+      } else if (
+        object instanceof THREE.Group ||
+        object instanceof THREE.Bone ||
+        object instanceof THREE.Camera ||
+        object.constructor === THREE.Object3D
+      ) {
         handle = api.scene.group({ name: object.name || object.type || "Group" });
       } else if (object instanceof THREE.PointLight) {
         handle = api.light.point({ name: object.name || "Point Light", color: "#" + object.color.getHexString(), intensity: object.intensity, distance: object.distance, decay: object.decay });
