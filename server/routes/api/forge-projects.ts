@@ -1,4 +1,4 @@
-import { defineEventHandler, getHeader, getQuery, readBody, setResponseStatus } from "h3";
+import { defineEventHandler, getQuery, readBody, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
 import { auth, authConfigured } from "@/lib/auth/server";
 import { dbSource } from "@/lib/db";
@@ -7,19 +7,19 @@ import type { Project } from "@/forge/types.ts";
 import { deleteProjectFromDb, listUserProjectsFromDb, loadProjectFromDb, saveProjectToDb } from "@/lib/projects.server";
 
 function requestHeaders(event: H3Event): Headers {
-  const headers = new Headers();
-  const raw = event.node?.req?.headers ?? {};
-  for (const [name, value] of Object.entries(raw)) {
-    if (value == null) continue;
-    headers.set(name, Array.isArray(value) ? value.join(", ") : String(value));
-  }
-  return headers;
+  // Nitro 3 / H3 v2 uses the Web Request as the portable source of headers.
+  // The deprecated event.node.req is absent on some Vercel deployments.
+  return new Headers(event.req.headers);
 }
 
 function originIsAllowed(event: H3Event): boolean {
-  const origin = getHeader(event, "origin");
+  const origin = event.req.headers.get("origin");
   if (!origin) return true;
-  const host = (getHeader(event, "host") || getHeader(event, "x-forwarded-host") || "").split(",")[0].trim();
+  const host = (
+    event.req.headers.get("host") ||
+    event.req.headers.get("x-forwarded-host") ||
+    ""
+  ).split(",")[0].trim();
   try {
     return new URL(origin).host.toLowerCase() === host.toLowerCase();
   } catch {
@@ -34,11 +34,7 @@ async function getUserId(event: H3Event): Promise<string | null> {
 }
 
 export default defineEventHandler(async (event) => {
-  if (!event.node?.req) {
-    setResponseStatus(event, 500);
-    return { error: "HTTP request context is unavailable." };
-  }
-  const method = (event.node.req.method || "GET").toUpperCase();
+  const method = event.req.method.toUpperCase();
   if (!originIsAllowed(event)) {
     setResponseStatus(event, 403);
     return { error: "Cross-origin project requests are not allowed." };
