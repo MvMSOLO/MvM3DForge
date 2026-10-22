@@ -35,7 +35,7 @@ function originAllowed(event: H3Event): boolean {
   if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") return false;
   const allowed = configuredList(process.env.MCP_ALLOWED_ORIGINS, [DEFAULT_ORIGIN]);
   const requestHost = getRequestHost(event);
-  return parsed.host.toLowerCase() === requestHost || allowed.includes(parsed.origin.toLowerCase());
+  return parsed.hostname.toLowerCase() === requestHost || allowed.includes(parsed.origin.toLowerCase());
 }
 
 function hostAllowed(event: H3Event): boolean {
