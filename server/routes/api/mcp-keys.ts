@@ -1,9 +1,10 @@
 import { defineEventHandler, getHeader, getQuery, readBody, setResponseStatus } from "h3";
+import type { H3Event } from "h3";
 import { auth, authConfigured } from "@/lib/auth/server";
 import { dbSource } from "@/lib/db";
 import { createMcpApiKey, listMcpApiKeys, revokeMcpApiKey, MCP_SCOPES } from "@/lib/mcp/api-keys.server";
 
-function requestHeaders(event: Parameters<typeof defineEventHandler>[0] extends never ? never : any): Headers {
+function requestHeaders(event: H3Event): Headers {
   const headers = new Headers();
   const raw = event.node?.req?.headers ?? {};
   for (const [name, value] of Object.entries(raw)) {
@@ -13,13 +14,13 @@ function requestHeaders(event: Parameters<typeof defineEventHandler>[0] extends 
   return headers;
 }
 
-async function signedInUserId(event: any): Promise<string | null> {
+async function signedInUserId(event: H3Event): Promise<string | null> {
   if (!authConfigured) return null;
   const session = await auth.api.getSession({ headers: requestHeaders(event) });
   return session?.user?.id ?? null;
 }
 
-function originIsAllowed(event: any): boolean {
+function originIsAllowed(event: H3Event): boolean {
   const origin = getHeader(event, "origin");
   if (!origin) return true;
   const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
