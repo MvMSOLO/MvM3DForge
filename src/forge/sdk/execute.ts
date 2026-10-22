@@ -49,6 +49,14 @@ type TexHandle = {
   toJSON: () => { id: string; name: string; kind: "texture" };
 };
 
+type PendingThreeTrack = {
+  clipId: string;
+  object: THREE.Object3D;
+  property: AnimProperty;
+  interpolation: "linear" | "smooth";
+  keyframes: AnimTrack["keyframes"];
+};
+
 class Vec {
   x: number;
   y: number;
@@ -218,6 +226,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
   const textures: TextureAsset[] = [];
   const texHandles = new Map<string, TexHandle>();
   const clips: AnimClip[] = [];
+  const pendingThreeTracks: PendingThreeTrack[] = [];
   const paints: (() => Promise<void>)[] = [];
   let background: string | undefined;
   let environment: EnvironmentPreset | undefined;
@@ -821,6 +830,12 @@ export async function executeUserCode(code: string): Promise<RunResult> {
             throw new ForgeError("MVM_E_ARGUMENT_TYPE", "mvm.scene.add expected at least one object.");
           }
           for (const item of list) {
+            // Bridge compatibility: accept native Three.js Object3D values as well as
+            // Forge handles. This lets a group of native meshes be added through either API.
+            if (item instanceof THREE.Object3D) {
+              threeScene.add(item);
+              continue;
+            }
             const internal = requireInternal(item, "mvm.scene.add");
             internal.node.parentId = null;
             attach(internal);
@@ -828,6 +843,10 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           return list.length === 1 ? list[0] : list;
         },
         remove(target: unknown) {
+          if (target instanceof THREE.Object3D) {
+            threeScene.remove(target);
+            return;
+          }
           const internal = requireInternal(target, "mvm.scene.remove");
           internal.inScene = false;
           for (const id of descendantIds(internal.node.id)) {
@@ -837,6 +856,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
         },
         clear() {
           for (const item of internals.values()) item.inScene = false;
+          threeScene.clear();
         },
         group(opts?: Record<string, unknown>) {
           const o = record(opts, "mvm.scene.group");
@@ -920,12 +940,15 @@ export async function executeUserCode(code: string): Promise<RunResult> {
               recoveryHint: "Pass the object returned by mvm.animation.clip, or its name.",
             });
           }
-          if (clip.tracks.length >= LIMITS.maxTracksPerClip) {
+          const queuedTracks = pendingThreeTracks.filter((track) => track.clipId === clip.id).length;
+          if (clip.tracks.length + queuedTracks >= LIMITS.maxTracksPerClip) {
             throw new ForgeError("MVM_E_ANIMATION_INVALID", `Track budget per clip is ${LIMITS.maxTracksPerClip}.`);
           }
-          const target = requireInternal(o.object ?? o.target, "mvm.animation.track");
+          const targetValue = o.object ?? o.target;
+          const nativeTarget = targetValue instanceof THREE.Object3D ? targetValue : null;
+          const target = nativeTarget ? null : requireInternal(targetValue, "mvm.animation.track");
           const property = parseProperty(o.property);
-          const interpolation = o.interpolation === "smooth" ? "smooth" : o.interpolation === undefined ? "linear" : parseInterp(o.interpolation);
+          const interpolation = o.interpolation === undefined ? "linear" : parseInterp(o.interpolation);
           const keysIn = Array.isArray(o.keys) ? o.keys : o.keyframes;
           if (!Array.isArray(keysIn) || keysIn.length < 1) {
             throw new ForgeError("MVM_E_ANIMATION_INVALID", "Track keys must be a non-empty array.", {
@@ -949,17 +972,31 @@ export async function executeUserCode(code: string): Promise<RunResult> {
             }
             return { time, value: raw.slice(0, expect).map(Number) };
           });
-          const track: AnimTrack = {
-            id: crypto.randomUUID(),
-            objectId: target.node.id,
-            property,
-            interpolation,
-            keyframes,
-          };
-          clip.tracks.push(track);
+          const trackId = crypto.randomUUID();
+          if (nativeTarget) {
+            // Native Three.js targets are resolved to Forge node IDs after the scene bridge
+            // has converted all Object3D instances. This supports mvm.animation.track on
+            // THREE.Mesh, THREE.Group and other native Three.js objects.
+            pendingThreeTracks.push({
+              clipId: clip.id,
+              object: nativeTarget,
+              property,
+              interpolation,
+              keyframes,
+            });
+          } else if (target) {
+            const track: AnimTrack = {
+              id: trackId,
+              objectId: target.node.id,
+              property,
+              interpolation,
+              keyframes,
+            };
+            clip.tracks.push(track);
+          }
           const maxTime = keyframes.reduce((m, key) => Math.max(m, key.time), 0);
           if (maxTime > clip.duration) clip.duration = maxTime;
-          return { id: track.id };
+          return { id: trackId };
         },
         play(nameOrId: unknown) {
           const clip = resolveClip(nameOrId);
@@ -1116,21 +1153,35 @@ export async function executeUserCode(code: string): Promise<RunResult> {
   const threeScene = new THREE.Scene();
   const importedThreeObjects = new Map<THREE.Object3D, any>();
 
-  function materialOptions(material: THREE.Material | THREE.Material[]) {
+  function isForgeMaterialSpec(value: unknown): value is MaterialSpec {
+    if (!value || typeof value !== "object") return false;
+    const spec = value as Partial<MaterialSpec>;
+    return typeof spec.color === "string"
+      && /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(spec.color)
+      && typeof spec.roughness === "number"
+      && typeof spec.metalness === "number"
+      && typeof spec.emissive === "string";
+  }
+
+  function materialOptions(material: THREE.Material | THREE.Material[] | MaterialSpec): MaterialSpec {
     const m = Array.isArray(material) ? material[0] : material;
+    // mvm.material.pbr returns a Forge MaterialSpec, not a THREE.Material. Preserve it
+    // verbatim when it is assigned to a native THREE.Mesh during mixed-API authoring.
+    if (isForgeMaterialSpec(m)) return m;
+    const threeMaterial = m as THREE.Material;
     if (Array.isArray(material) && material.length > 1) {
       pushLog("warn", [`Mesh uses ${material.length} materials; Forge currently preserves only the first material. Geometry groups may therefore lose their original per-face material assignments.`]);
     }
-    if (!(m instanceof THREE.MeshStandardMaterial) && !(m instanceof THREE.MeshPhysicalMaterial)
-      && !(m instanceof THREE.MeshPhongMaterial) && !(m instanceof THREE.MeshLambertMaterial)
-      && !(m instanceof THREE.MeshBasicMaterial)) {
-      pushLog("warn", [`Material "${m?.type ?? "unknown"}" is not fully representable in the Forge PBR project format; using a best-effort conversion.`]);
+    if (!(threeMaterial instanceof THREE.MeshStandardMaterial) && !(threeMaterial instanceof THREE.MeshPhysicalMaterial)
+      && !(threeMaterial instanceof THREE.MeshPhongMaterial) && !(threeMaterial instanceof THREE.MeshLambertMaterial)
+      && !(threeMaterial instanceof THREE.MeshBasicMaterial)) {
+      pushLog("warn", [`Material "${threeMaterial?.type ?? "unknown"}" is not fully representable in the Forge PBR project format; using a best-effort conversion.`]);
     }
-    const pbr = m as THREE.MeshStandardMaterial;
+    const pbr = threeMaterial as THREE.MeshStandardMaterial;
     const color = pbr.color instanceof THREE.Color ? "#" + pbr.color.getHexString() : "#D4AF37";
     const emissive = pbr.emissive instanceof THREE.Color ? "#" + pbr.emissive.getHexString() : "#000000";
-    const side = m.side === THREE.DoubleSide ? "double" : m.side === THREE.BackSide ? "back" : "front";
-    if (m instanceof THREE.MeshStandardMaterial || m instanceof THREE.MeshPhysicalMaterial) {
+    const side = threeMaterial.side === THREE.DoubleSide ? "double" : threeMaterial.side === THREE.BackSide ? "back" : "front";
+    if (threeMaterial instanceof THREE.MeshStandardMaterial || threeMaterial instanceof THREE.MeshPhysicalMaterial) {
       const mapped = [
         ["map", pbr.map],
         ["normalMap", pbr.normalMap],
@@ -1139,11 +1190,11 @@ export async function executeUserCode(code: string): Promise<RunResult> {
         ["aoMap", pbr.aoMap],
       ].filter(([, texture]) => Boolean(texture)).map(([slot]) => slot);
       if (mapped.length) {
-        pushLog("warn", [`Material "${m.name || m.type}" has texture maps (${mapped.join(", ")}); current scene conversion preserves base material values but not these external texture pixels.`]);
+        pushLog("warn", [`Material "${threeMaterial.name || threeMaterial.type}" has texture maps (${mapped.join(", ")}); current scene conversion preserves base material values but not these external texture pixels.`]);
       }
     }
-    if (m instanceof THREE.ShaderMaterial || m instanceof THREE.RawShaderMaterial) {
-      pushLog("warn", [`Shader material "${m.name || m.type}" cannot be represented in the Forge PBR schema; using a fallback material.`]);
+    if (threeMaterial instanceof THREE.ShaderMaterial || threeMaterial instanceof THREE.RawShaderMaterial) {
+      pushLog("warn", [`Shader material "${threeMaterial.name || threeMaterial.type}" cannot be represented in the Forge PBR schema; using a fallback material.`]);
     }
     return {
       color,
@@ -1152,9 +1203,18 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       opacity: typeof pbr.opacity === "number" ? pbr.opacity : 1,
       emissive,
       emissiveIntensity: typeof pbr.emissiveIntensity === "number" ? pbr.emissiveIntensity : 0,
-      alphaMode: m.transparent ? "BLEND" : m.alphaTest > 0 ? "MASK" : "OPAQUE",
-      alphaCutoff: typeof m.alphaTest === "number" ? m.alphaTest : 0.5,
+      alphaMode: threeMaterial.transparent ? "BLEND" : threeMaterial.alphaTest > 0 ? "MASK" : "OPAQUE",
+      alphaCutoff: typeof threeMaterial.alphaTest === "number" ? threeMaterial.alphaTest : 0.5,
       side,
+      mapId: null,
+      normalMapId: null,
+      aoMapId: null,
+      roughnessMapId: null,
+      metalnessMapId: null,
+      repeat: [1, 1],
+      offset: [0, 0],
+      rotation: 0,
+      wrap: "repeat",
     };
   }
 
@@ -1195,7 +1255,20 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       let handle: any;
       const meshLike = object as THREE.Mesh;
       const geometryLike = meshLike.geometry as THREE.BufferGeometry | undefined;
-      if (meshLike.isMesh && geometryLike?.isBufferGeometry) {
+      const rawGeometry: unknown = meshLike.geometry;
+      if (meshLike.isMesh && rawGeometry instanceof PublicObject) {
+        // mvm.geometry.box/sphere/torus return Forge mesh handles (GeometrySpec), not
+        // Three.js BufferGeometry objects. If users wrap one in THREE.Mesh, reuse that
+        // Forge handle and copy the native mesh's name, transform, visibility and material.
+        handle = rawGeometry;
+        handle.name = object.name || handle.name || object.type || "Mesh";
+        if (isForgeMaterialSpec(meshLike.material)) {
+          handle.material = meshLike.material;
+        } else {
+          handle.material = materialOptions(meshLike.material as THREE.Material | THREE.Material[]);
+        }
+        convertedMeshes += 1;
+      } else if (meshLike.isMesh && geometryLike?.isBufferGeometry) {
         const geometry = geometryLike;
         const position = geometry.getAttribute("position");
         if (!position || position.count < 3) {
@@ -1222,7 +1295,9 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           normals: normals ? attributeValues(normals, 3, "normal") : undefined,
           uvs: uv ? attributeValues(uv, 2, "uv") : undefined,
         });
-        handle.material = materialOptions(object.material as THREE.Material | THREE.Material[]);
+        handle.material = isForgeMaterialSpec(object.material)
+          ? object.material
+          : materialOptions(object.material as THREE.Material | THREE.Material[]);
       } else if (
         (object as THREE.Group).isGroup ||
         (object as THREE.Bone).isBone ||
@@ -1280,6 +1355,28 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       const parent = object.parent && object.parent !== threeScene ? importedThreeObjects.get(object.parent) : undefined;
       if (parent) handle.parent = parent;
       else api.scene.add(handle);
+    }
+
+    // Resolve animation targets only after all native Three.js objects have been mapped
+    // to Forge handles. This also supports clips authored before mvm.scene.add(root).
+    for (const pending of pendingThreeTracks.splice(0)) {
+      const handle = importedThreeObjects.get(pending.object);
+      const clip = clips.find((item) => item.id === pending.clipId);
+      if (!(handle instanceof PublicObject) || !clip) {
+        pushLog("warn", [`Skipped animation track: Three.js target "${pending.object.name || pending.object.type}" was not converted into a Forge node.`]);
+        continue;
+      }
+      if (clip.tracks.length >= LIMITS.maxTracksPerClip) {
+        pushLog("warn", [`Skipped an animation track for "${clip.name}": the track limit is ${LIMITS.maxTracksPerClip}.`]);
+        continue;
+      }
+      clip.tracks.push({
+        id: crypto.randomUUID(),
+        objectId: handle.id,
+        property: pending.property,
+        interpolation: pending.interpolation,
+        keyframes: pending.keyframes,
+      });
     }
 
     if (threeScene.background instanceof THREE.Color) {
@@ -1370,8 +1467,12 @@ function parseProperty(value: unknown): AnimProperty {
 }
 
 function parseInterp(value: unknown): "linear" | "smooth" {
-  if (value === "linear" || value === "smooth") return value;
-  throw new ForgeError("MVM_E_ANIMATION_INVALID", 'interpolation must be "linear" or "smooth".');
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : value;
+  if (normalized === "linear") return "linear";
+  if (normalized === "smooth" || normalized === "cubic") return "smooth";
+  throw new ForgeError("MVM_E_ANIMATION_INVALID", 'interpolation must be "linear", "smooth", or "cubic".', {
+    recoveryHint: 'Use "linear" for constant-speed interpolation or "smooth"/"cubic" for smooth keyframe motion.',
+  });
 }
 
 function pair(value: unknown, fallback: [number, number], api: string, name: string): [number, number] {
