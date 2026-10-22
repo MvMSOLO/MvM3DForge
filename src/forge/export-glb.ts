@@ -70,6 +70,7 @@ export async function exportProjectGlb(
   project: Project,
   options: ExportOptions,
 ): Promise<{ buffer: ArrayBuffer; summary: ExportSummary; issues: ForgeIssue[] }> {
+  ensureFileReader();
   const issues = validateScene({
     objects: options.visibleOnly ? project.objects.filter((node) => node.visible) : project.objects,
     textures: project.textures,

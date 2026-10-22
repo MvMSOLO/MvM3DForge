@@ -3,12 +3,16 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
-import { ArrowLeft, Activity, Box, Check, CircleAlert, Copy, Download, FileUp, Layers3, Pause, Play, RotateCcw, Save, Sparkles, Terminal } from "lucide-react";
+import { ArrowLeft, Activity, Box, Check, CircleAlert, Copy, Download, FileUp, Layers3, Pause, Play, RotateCcw, Save, Sparkles, Terminal, Sliders, Command as CmdIcon } from "lucide-react";
 import { applyScriptPatch, createStarterProject, migrateProject, packageProject } from "@/forge/project.ts";
 import { starters, type StarterId } from "@/forge/examples.ts";
 import { animationClips, assembleScene } from "@/forge/scene-three.ts";
 import { executeUserCode } from "@/forge/sdk/execute.ts";
 import type { Project } from "@/forge/types.ts";
+import { useStudioStore, useHistoryStore } from "@/forge/store";
+import { PropertyInspector } from "@/components/PropertyInspector";
+import { CommandPalette } from "@/components/CommandPalette";
+import { AIPanel } from "@/components/AIPanel";
 
 export const Route = createFileRoute("/studio")({ component: Studio });
 
@@ -500,9 +504,24 @@ function Studio() {
         </section>
 
         <section className="forge-workbench flex min-h-[520px] flex-col bg-[#0b1118] lg:min-h-0">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3"><div className="text-xs font-semibold">Workspace</div><div className="flex gap-1">{(["code", "objects", "console", "integrations"] as const).map((name) => <button key={name} onClick={() => setTab(name)} className={`forge-tab rounded-md px-2.5 py-1.5 text-[10px] capitalize ${tab === name ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"}`}>{name === "integrations" ? "3D stack" : name}</button>)}</div></div>
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <div className="text-xs font-semibold">Workspace</div>
+            <div className="flex gap-1">
+              {(["code", "inspector", "ai", "objects", "console", "integrations"] as const).map((name) => (
+                <button
+                  key={name}
+                  onClick={() => setTab(name as any)}
+                  className={`forge-tab rounded-md px-2.5 py-1.5 text-[10px] capitalize ${tab === (name as any) ? "bg-white/10 text-white font-semibold" : "text-slate-500 hover:text-slate-300"}`}
+                >
+                  {name === "integrations" ? "3D stack" : name === "ai" ? "AI & MCP" : name}
+                </button>
+              ))}
+            </div>
+          </div>
           {tab === "code" && <><div className="flex items-center justify-between px-4 py-3"><div><div className="text-xs font-semibold">main.mvm.js</div><div className="mt-1 text-[10px] text-slate-500">Restricted SDK · no arbitrary network access</div></div><button onClick={() => void runCode()} disabled={!project || running || busy} className="inline-flex items-center gap-2 rounded-lg bg-[#83f0ce] px-3 py-2 text-xs font-semibold text-[#071511] disabled:opacity-50"><Play size={13} /> {running ? "Running…" : "Run code"}</button></div><textarea value={code} onChange={(event) => setCode(event.target.value)} spellCheck={false} aria-label="MVM SDK JavaScript editor" className="min-h-[350px] flex-1 resize-y border-y border-white/[.08] bg-[#080d12] p-4 font-mono text-[12px] leading-6 text-[#d4e0e8] outline-none focus:border-[#83f0ce]/30" placeholder="// Write MVM SDK code here…" /><div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-[10px] leading-5 text-slate-500"><span>JavaScript · mvm SDK + Three.js bridge · mobile-aware budgets</span><button onClick={() => void copyAIContext()} className="inline-flex items-center gap-1.5 text-[#83f0ce] hover:text-white"><Copy size={12} /> Copy AI context</button></div></>}
-          {tab === "objects" && <div className="flex-1 space-y-2 overflow-auto p-4">{project?.objects.map((node) => <button key={node.id} onClick={() => setSelected(node.id)} className={`block w-full rounded-lg border p-3 text-left ${selected === node.id ? "border-[#83f0ce]/40 bg-[#83f0ce]/[.06]" : "border-white/[.08] bg-white/[.02]"}`}><div className="text-xs font-semibold">{node.name}</div><div className="mt-1 text-[10px] text-slate-500">{node.type} · {node.source} · {node.visible ? "visible" : "hidden"}</div>{node.position && <div className="mt-2 font-mono text-[10px] text-slate-500">pos [{node.position.map((n) => n.toFixed(2)).join(", ")}]</div>}</button>)}</div>}
+          {(tab as string) === "inspector" && <PropertyInspector />}
+          {(tab as string) === "ai" && <AIPanel />}
+          {tab === "objects" && <div className="flex-1 space-y-2 overflow-auto p-4">{project?.objects.map((node) => <button key={node.id} onClick={() => { setSelected(node.id); setTab("inspector" as any); }} className={`block w-full rounded-lg border p-3 text-left ${selected === node.id ? "border-[#83f0ce]/40 bg-[#83f0ce]/[.06]" : "border-white/[.08] bg-white/[.02]"}`}><div className="text-xs font-semibold">{node.name}</div><div className="mt-1 text-[10px] text-slate-500">{node.type} · {node.source} · {node.visible ? "visible" : "hidden"}</div>{node.position && <div className="mt-2 font-mono text-[10px] text-slate-500">pos [{node.position.map((n) => n.toFixed(2)).join(", ")}]</div>}</button>)}</div>}
           {tab === "console" && <div className="forge-console flex-1 overflow-auto p-4 font-mono text-[11px] leading-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-white/[.08] pb-3"><div className="flex items-center gap-2 text-xs font-semibold"><Terminal size={14} className="text-[#83f0ce]" /> Runtime Console <span className="text-[10px] font-normal text-slate-500">{logs.length} entries</span></div><button onClick={() => void copyLogs()} className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-2.5 py-1.5 text-[10px] text-slate-300 hover:border-[#83f0ce]/40 hover:text-[#83f0ce]"><Copy size={12} /> Copy all</button></div>
             {logs.length ? logs.map((line, index) => { const isError = /^\[(ERROR|MVM_E_|Studio|Renderer|Export|Worker)/i.test(line) || /uncaught|failed|exception/i.test(line); const isWarn = /^\[WARN\]/i.test(line); return <div key={index} className={`forge-log-row border-b border-white/[.05] py-2 ${isError ? "forge-log-error" : isWarn ? "forge-log-warn" : "text-slate-400"}`}><span className="mr-2 opacity-80">{isError ? <CircleAlert size={12} className="inline" /> : isWarn ? "!" : "›"}</span>{line}<button aria-label="Copy this log line" title="Copy log line" onClick={() => void copyText(line, "Log line copied")} className="ml-2 inline-flex align-middle text-slate-600 hover:text-[#83f0ce]"><Copy size={11} /></button></div>; }) : <div className="rounded-xl border border-dashed border-white/10 p-6 text-center"><Terminal size={22} className="mx-auto mb-2 text-slate-600" /><div className="text-slate-400">Console tayyor</div><div className="mt-1 text-[10px] text-slate-600">Run code yoki renderer xatosi bo‘lsa, natija shu yerda chiqadi.</div></div>}
