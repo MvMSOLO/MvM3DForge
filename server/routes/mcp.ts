@@ -1,4 +1,5 @@
 import { defineEventHandler, getHeader, readBody, setHeader, setResponseStatus } from "h3";
+import type { H3Event } from "h3";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createPersistedMcpServer } from "@/forge/remote-mcp-server";
 import { dbSource } from "@/lib/db";
@@ -16,13 +17,13 @@ function configuredList(value: string | undefined, fallback: string[]): string[]
   return parsed.length ? parsed : fallback;
 }
 
-function getRequestHost(event: Parameters<typeof defineEventHandler>[0] extends never ? never : any): string {
+function getRequestHost(event: H3Event): string {
   const forwarded = getHeader(event, "x-forwarded-host")?.split(",")[0]?.trim();
   const host = forwarded || getHeader(event, "host") || "";
   return host.toLowerCase().split(":")[0];
 }
 
-function originAllowed(event: any): boolean {
+function originAllowed(event: H3Event): boolean {
   const origin = getHeader(event, "origin");
   if (!origin) return true; // Server-to-server clients commonly omit Origin.
   let parsed: URL;
@@ -33,13 +34,15 @@ function originAllowed(event: any): boolean {
   }
   if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") return false;
   const allowed = configuredList(process.env.MCP_ALLOWED_ORIGINS, [DEFAULT_ORIGIN]);
-  return allowed.includes(parsed.origin.toLowerCase());
+  const requestHost = getRequestHost(event);
+  return parsed.host.toLowerCase() === requestHost || allowed.includes(parsed.origin.toLowerCase());
 }
 
-function hostAllowed(event: any): boolean {
+function hostAllowed(event: H3Event): boolean {
   const host = getRequestHost(event);
   const allowed = configuredList(process.env.MCP_ALLOWED_HOSTS, DEFAULT_HOSTS);
-  return Boolean(host) && allowed.includes(host);
+  const vercelProjectHost = host.startsWith("mvm3dforge-") && host.endsWith("-mirzayevavazbek15-3491s-projects.vercel.app");
+  return Boolean(host) && (allowed.includes(host) || vercelProjectHost);
 }
 
 function errorBody(code: number, message: string) {
@@ -108,16 +111,15 @@ export default defineEventHandler(async (event) => {
       enableJsonResponse: true,
     });
     await server.connect(transport);
+    res.on("close", () => {
+      void transport?.close().catch(() => undefined);
+      void server?.close().catch(() => undefined);
+    });
 
     // Passing parsedBody to the SDK prevents the transport and H3 from both
     // attempting to consume the same request stream.
     const body = method === "POST" ? await readBody(event) : undefined;
     await transport.handleRequest(req, res, body);
-
-    res.on("close", () => {
-      void transport?.close().catch(() => undefined);
-      void server?.close().catch(() => undefined);
-    });
     return;
   } catch (error) {
     console.error("[mcp] Request failed:", error instanceof Error ? error.message : "unknown error");
