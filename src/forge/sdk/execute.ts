@@ -1227,9 +1227,25 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       } else if (object instanceof THREE.PointLight) {
         handle = api.light.point({ name: object.name || "Point Light", color: "#" + object.color.getHexString(), intensity: object.intensity, distance: object.distance, decay: object.decay });
       } else if (object instanceof THREE.SpotLight) {
-        handle = api.light.spot({ name: object.name || "Spot Light", color: "#" + object.color.getHexString(), intensity: object.intensity, distance: object.distance, decay: object.decay, angle: THREE.MathUtils.radToDeg(object.angle), penumbra: object.penumbra, castShadow: object.castShadow });
+        handle = api.light.spot({
+          name: object.name || "Spot Light",
+          color: "#" + object.color.getHexString(),
+          intensity: object.intensity,
+          distance: object.distance,
+          decay: object.decay,
+          angle: THREE.MathUtils.radToDeg(object.angle),
+          penumbra: object.penumbra,
+          castShadow: object.castShadow,
+          target: [object.target.position.x, object.target.position.y, object.target.position.z],
+        });
       } else if (object instanceof THREE.DirectionalLight) {
-        handle = api.light.directional({ name: object.name || "Directional Light", color: "#" + object.color.getHexString(), intensity: object.intensity, castShadow: object.castShadow });
+        handle = api.light.directional({
+          name: object.name || "Directional Light",
+          color: "#" + object.color.getHexString(),
+          intensity: object.intensity,
+          castShadow: object.castShadow,
+          target: [object.target.position.x, object.target.position.y, object.target.position.z],
+        });
       } else if (object instanceof THREE.HemisphereLight) {
         handle = api.light.hemisphere({ name: object.name || "Hemisphere Light", color: "#" + object.color.getHexString(), groundColor: "#" + object.groundColor.getHexString(), intensity: object.intensity });
       } else if (object instanceof THREE.AmbientLight) {
