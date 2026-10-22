@@ -183,7 +183,7 @@ describe("Remote MCP server end-to-end tool registry", () => {
         name: "export_project_glb",
         arguments: { projectId: created.projectId },
       });
-      assert.equal(result.isError, undefined);
+      assert.ok(!result.isError, JSON.stringify(result.content));
       const resourceContent = result.content.find((item: { type: string }) => item.type === "resource") as any;
       assert.equal(resourceContent?.resource?.mimeType, "model/gltf-binary");
       assert.ok(typeof resourceContent?.resource?.blob === "string");
