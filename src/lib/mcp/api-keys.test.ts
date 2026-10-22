@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { hashMcpApiKey, normalizeMcpScopes } from "./api-keys.server.ts";
+import { hashMcpApiKey, normalizeMcpScopes } from "./api-keys-primitives.ts";
 
 describe("MCP API key primitives", () => {
   it("hashes the key instead of exposing the original secret", () => {
