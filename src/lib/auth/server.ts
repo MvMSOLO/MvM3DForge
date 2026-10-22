@@ -72,7 +72,10 @@ const env = (key: string): string | undefined => {
 
 // Explicit off-switch. The deployer sets `VITE_AUTH_ENABLED=true` when it
 // provisions auth; set it to "false" to force auth off everywhere (dev user).
-const authDisabled = env("VITE_AUTH_ENABLED") === "false";
+// Production always requires real user sessions for private projects and MCP
+// credentials. Keep the template's auth-off switch scoped to local/non-prod use.
+const authDisabled =
+  process.env.NODE_ENV !== "production" && env("VITE_AUTH_ENABLED") === "false";
 
 // Broker federation creds: the deployer injects a per-app client when deployed;
 // otherwise fall back to the shared live-preview client, which the broker accepts
