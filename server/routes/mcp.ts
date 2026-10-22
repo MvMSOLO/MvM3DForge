@@ -18,8 +18,8 @@ function configuredList(value: string | undefined, fallback: string[]): string[]
 }
 
 function getRequestHost(event: H3Event): string {
-  const forwarded = getHeader(event, "x-forwarded-host")?.split(",")[0]?.trim();
-  const host = forwarded || getHeader(event, "host") || "";
+  // Prefer the actual Host header; forwarded values are only a fallback behind a trusted proxy.
+  const host = getHeader(event, "host") || getHeader(event, "x-forwarded-host") || "";
   return host.toLowerCase().split(":")[0];
 }
 
@@ -55,7 +55,7 @@ export default defineEventHandler(async (event) => {
   const method = (req.method || "GET").toUpperCase();
 
   setHeader(event, "Vary", "Origin");
-  setHeader(event, "Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  setHeader(event, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   setHeader(event, "Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, MCP-Session-Id, X-API-Key");
   setHeader(event, "Access-Control-Expose-Headers", "MCP-Protocol-Version, MCP-Session-Id");
   setHeader(event, "Cache-Control", "no-store");
@@ -82,8 +82,8 @@ export default defineEventHandler(async (event) => {
   const origin = getHeader(event, "origin");
   if (origin) setHeader(event, "Access-Control-Allow-Origin", origin);
 
-  if (method !== "POST" && method !== "GET" && method !== "DELETE") {
-    setHeader(event, "Allow", "GET, POST, DELETE, OPTIONS");
+  if (method !== "POST" && method !== "GET") {
+    setHeader(event, "Allow", "GET, POST, OPTIONS");
     setResponseStatus(event, 405);
     return errorBody(-32000, "Method not allowed.");
   }
