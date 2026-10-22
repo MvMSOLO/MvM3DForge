@@ -150,7 +150,7 @@ export async function buildObject(
       light = new THREE.DirectionalLight(spec.color, spec.intensity);
     }
     light.castShadow = Boolean(shadow && spec.castShadow && (spec.kind === "directional" || spec.kind === "spot"));
-    if (light.shadow && light.castShadow) {
+    if ((light instanceof THREE.DirectionalLight || light instanceof THREE.SpotLight) && light.shadow && light.castShadow) {
       light.shadow.mapSize.set(1024, 1024);
       light.shadow.bias = -0.0004;
       const cam = light.shadow.camera as THREE.OrthographicCamera;
