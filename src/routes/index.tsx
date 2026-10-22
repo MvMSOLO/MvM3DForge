@@ -67,9 +67,9 @@ function Home() {
               to portable formats.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-3">
-              <div className="inline-flex items-center gap-2 rounded-xl bg-[#83f0ce] px-5 py-3 text-sm font-semibold text-[#071511]">
-                Studio foundation <ArrowUpRight size={16} />
-              </div>
+              <a href="/studio" className="inline-flex items-center gap-2 rounded-xl bg-[#83f0ce] px-5 py-3 text-sm font-semibold text-[#071511] no-underline transition hover:bg-[#a1f7dc] focus:outline-none focus:ring-2 focus:ring-[#83f0ce] focus:ring-offset-2 focus:ring-offset-[#0b1016]">
+                Open Studio <ArrowUpRight size={16} />
+              </a>
               <span className="text-xs text-[#71808f]">No AI required for the core workflow</span>
             </div>
             <div className="mt-12 flex items-center gap-6 border-t border-white/[0.09] pt-6 text-xs text-[#71808f]">
