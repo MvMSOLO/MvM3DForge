@@ -1349,12 +1349,21 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       if (meshLike.isMesh && geometryLike?.isBufferGeometry) convertedMeshes += 1;
     }
 
+    // Link the entire hierarchy before attaching roots. If a root is attached before its
+    // children receive parent IDs, attach() cannot discover those children and they remain
+    // out of the persisted scene (the classic "discovered meshes, converted zero Forge nodes" bug).
     for (const object of nodes) {
       const handle = importedThreeObjects.get(object);
       if (!handle) continue;
       const parent = object.parent && object.parent !== threeScene ? importedThreeObjects.get(object.parent) : undefined;
       if (parent) handle.parent = parent;
-      else api.scene.add(handle);
+    }
+    // Now every parentId is populated, so attaching each root includes all descendants.
+    for (const object of nodes) {
+      const handle = importedThreeObjects.get(object);
+      if (!handle) continue;
+      const parent = object.parent && object.parent !== threeScene ? importedThreeObjects.get(object.parent) : undefined;
+      if (!parent) api.scene.add(handle);
     }
 
     // Resolve animation targets only after all native Three.js objects have been mapped
