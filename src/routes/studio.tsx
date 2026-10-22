@@ -158,7 +158,10 @@ function Studio() {
       setSelected(null);
       setMessage(`Run complete · ${next.objects.filter((item) => item.type === "mesh").length} meshes in scene`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Code run failed.");
+      const detail = error instanceof Error ? error.message : "Code run failed.";
+      setLogs([`[Studio] ${detail}`]);
+      setTab("console");
+      setMessage(detail);
     } finally {
       setRunning(false);
     }
