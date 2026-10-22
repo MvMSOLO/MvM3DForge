@@ -1,20 +1,32 @@
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createStarterProject } from "@/forge/project.ts";
-import { buildMCPSceneResource } from "@/forge/ai-mcp.ts";
-import { assembleScene, animationClips } from "@/forge/scene-three.ts";
+import { createStarterProject } from "./project.ts";
+import { buildMCPSceneResource } from "./ai-mcp.ts";
+import { assembleScene, animationClips } from "./scene-three.ts";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
-import { makeNode } from "@/forge/nodes.ts";
-import { defaultMaterial } from "@/forge/materials.ts";
-import type { GeometrySpec, LightSpec, Project } from "@/forge/types.ts";
-import { loadProjectFromDb, listUserProjectsFromDb, saveProjectToDb } from "@/lib/projects.server";
-import type { McpScope } from "@/lib/mcp/api-keys.server";
+import { makeNode } from "./nodes.ts";
+import { defaultMaterial } from "./materials.ts";
+import type { GeometrySpec, LightSpec, Project } from "./types.ts";
+import { loadProjectFromDb, listUserProjectsFromDb, saveProjectToDb } from "../lib/projects.server.ts";
+import type { McpScope } from "../lib/mcp/api-keys-primitives.ts";
 
 export interface RemoteMcpContext {
   userId: string;
   scopes: string[];
 }
+
+export interface McpProjectRepository {
+  list(userId: string): Promise<Array<{ id: string; name: string; updatedAt: number }>>;
+  load(userId: string, projectId: string): Promise<Project | null>;
+  save(userId: string, project: Project): Promise<Project>;
+}
+
+const databaseProjectRepository: McpProjectRepository = {
+  list: listUserProjectsFromDb,
+  load: loadProjectFromDb,
+  save: saveProjectToDb,
+};
 
 type JsonRecord = Record<string, unknown>;
 type Handler = (args: any) => Promise<unknown>;
@@ -44,7 +56,7 @@ function primitiveGeometry(kind: "box" | "sphere" | "cylinder" | "cone" | "torus
   }
 }
 
-export function createPersistedMcpServer(context: RemoteMcpContext): McpServer {
+export function createPersistedMcpServer(\n  context: RemoteMcpContext,\n  repository: McpProjectRepository = databaseProjectRepository,\n): McpServer {
   if (!context.userId) throw new Error("A verified user identity is required.");
   const server = new McpServer({ name: "MvM 3D Forge", version: "1.1.0" });
 
@@ -57,15 +69,15 @@ export function createPersistedMcpServer(context: RemoteMcpContext): McpServer {
   async function getProject(projectId?: string): Promise<Project> {
     requireScope("project:read");
     if (projectId) {
-      const project = await loadProjectFromDb(context.userId, projectId);
+      const project = await repository.load(context.userId, projectId);
       if (!project || project.author !== context.userId) {
         throw new Error("Project not found or access denied.");
       }
       return project;
     }
-    const projects = await listUserProjectsFromDb(context.userId);
+    const projects = await repository.list(context.userId);
     if (!projects.length) throw new Error("No saved projects yet. Call create_project first.");
-    const project = await loadProjectFromDb(context.userId, projects[0].id);
+    const project = await repository.load(context.userId, projects[0].id);
     if (!project) throw new Error("Project not found or access denied.");
     return project;
   }
