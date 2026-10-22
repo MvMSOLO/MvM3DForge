@@ -68,7 +68,7 @@ curl --fail-with-body -sS https://mvm3dforge.vercel.app/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-A valid result should include the complete tools array. Follow it with `tools/call` using a project ID returned from `list_projects` / `create_project`; do not use an arbitrary project ID. If the endpoint returns `401`, create a new key or verify expiry/revocation. A `403` indicates a host/origin restriction or insufficient scope. A `503` indicates that persistent Postgres is not configured or available.
+A valid result should include the complete tools array. Follow it with `tools/call` using a project ID returned from `list_projects` / `create_project`; do not use an arbitrary project ID. If the endpoint returns `401`, create a new key or verify expiry/revocation. A HTTP `403` indicates a Host/Origin allow-list restriction. A tool-level response containing `Permission denied` indicates the key lacks the required scope (tool errors are returned as MCP results and may still use HTTP 200). A `503` indicates that persistent Postgres is not configured or the key store is unavailable.
 
 ## Real persistence workflow
 
