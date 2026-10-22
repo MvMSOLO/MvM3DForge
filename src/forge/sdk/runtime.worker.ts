@@ -1,6 +1,11 @@
 import { executeUserCode } from "./execute.ts";
 
-const scope = self as unknown as DedicatedWorkerGlobalScope;
+type ForgeWorkerScope = {
+  onmessage: ((event: MessageEvent<{ code: string }>) => void) | null;
+  postMessage: (message: unknown) => void;
+};
+
+const scope = self as unknown as ForgeWorkerScope;
 
 scope.onmessage = (event: MessageEvent<{ code: string }>) => {
   void executeUserCode(event.data.code)
