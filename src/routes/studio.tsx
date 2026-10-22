@@ -134,11 +134,25 @@ function Studio() {
       setMessage(detail);
       setTab("console");
     };
+    const originalFetch = window.fetch.bind(window);
+    const monitoredFetch: typeof window.fetch = async (...args) => {
+      const response = await originalFetch(...args);
+      if (response.status >= 500) {
+        const requestUrl = args[0] instanceof Request ? args[0].url : String(args[0]);
+        const detail = `Server HTTP ${response.status} ${response.statusText || "error"} · ${requestUrl}`;
+        setLogs((current) => [...current, `[ERROR] ${detail}`]);
+        setMessage(detail);
+        setTab("console");
+      }
+      return response;
+    };
+    window.fetch = monitoredFetch;
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);
     return () => {
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onRejection);
+      if (window.fetch === monitoredFetch) window.fetch = originalFetch;
     };
   }, []);
 
