@@ -9,6 +9,7 @@ on:
 jobs:
   forge-bridge:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -22,11 +23,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build application and generate typed route tree
+      - name: Build app in development mode and generate typed route tree
         run: npm run build:dev
 
       - name: Type-check project
         run: npm run typecheck
 
-      - name: Run Forge bridge and export regression tests
-        run: node --experimental-strip-types --test src/forge/sdk/execute.test.ts
+      - name: Run full automated test suite
+        run: npm test
+
+      - name: Lint project
+        run: npm run lint
