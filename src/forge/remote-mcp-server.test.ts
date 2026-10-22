@@ -46,7 +46,7 @@ async function connectClient(userId = "user-a", scopes = ["project:read", "scene
   }};
 }
 
-function textPayload(result: { content: Array<{ type: string; text?: string }> }): any {
+function textPayload(result: any): any {
   const content = result.content.find((item) => item.type === "text" && typeof item.text === "string");
   assert.ok(content?.text, "expected a text MCP result");
   return JSON.parse(content.text);
@@ -179,7 +179,7 @@ describe("Remote MCP server end-to-end tool registry", () => {
         arguments: { projectId: created.projectId, kind: "box", name: "Export Box" },
       });
 
-      const result = await session.client.callTool({
+      const result: any = await session.client.callTool({
         name: "export_project_glb",
         arguments: { projectId: created.projectId },
       });
@@ -198,7 +198,7 @@ describe("Remote MCP server end-to-end tool registry", () => {
   it("enforces per-tool scopes before mutation", async () => {
     const session = await connectClient("reader", ["project:read"]);
     try {
-      const result = await session.client.callTool({
+      const result: any = await session.client.callTool({
         name: "create_project",
         arguments: { name: "Should Not Exist" },
       });
@@ -218,7 +218,7 @@ describe("Remote MCP server end-to-end tool registry", () => {
     try {
       const listed = textPayload(await session.client.callTool({ name: "list_projects", arguments: {} }));
       assert.deepEqual(listed.projects, []);
-      const result = await session.client.callTool({
+      const result: any = await session.client.callTool({
         name: "get_project",
         arguments: { projectId: "private-bob-project" },
       });
