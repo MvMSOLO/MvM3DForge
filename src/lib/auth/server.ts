@@ -33,7 +33,7 @@ import { betterAuth } from "better-auth";
 import { bearer, genericOAuth } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
@@ -70,9 +70,14 @@ const env = (key: string): string | undefined => {
   return value ? value : undefined;
 };
 
+const databaseUrl = env("DATABASE_URL");
+
 // Explicit off-switch. The deployer sets `VITE_AUTH_ENABLED=true` when it
 // provisions auth; set it to "false" to force auth off everywhere (dev user).
-const authDisabled = env("VITE_AUTH_ENABLED") === "false";
+// Production always requires real user sessions for private projects and MCP
+// credentials. Keep the template's auth-off switch scoped to local/non-prod use.
+const authDisabled =
+  process.env.NODE_ENV !== "production" && env("VITE_AUTH_ENABLED") === "false";
 
 // Broker federation creds: the deployer injects a per-app client when deployed;
 // otherwise fall back to the shared live-preview client, which the broker accepts
@@ -92,6 +97,7 @@ export const authConfigured =
 // preview allowlist, which makes the OAuth `redirect_uri` the concrete preview URL
 // the broker's preview client accepts.
 const explicitBaseURL = env("BETTER_AUTH_URL");
+const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3d.vercel.app";
 // Explicit `string[]` (not a readonly tuple) — Better Auth's DynamicBaseURLConfig
 // requires a mutable `allowedHosts: string[]`.
 const previewAllowedHosts: string[] = [...PREVIEW_ALLOWED_HOSTS];
@@ -106,7 +112,7 @@ const LOCAL_DEV_ORIGINS: string[] = [
 const baseURL = explicitBaseURL ?? {
   // Include loopback hosts so dynamic baseURL resolves for local email/password
   // (not only the preview wildcard).
-  allowedHosts: [...previewAllowedHosts, "localhost", "127.0.0.1", "[::1]"],
+  allowedHosts: [...previewAllowedHosts, new URL(CANONICAL_PRODUCTION_ORIGIN).host, "localhost", "127.0.0.1", "[::1]"],
   // `auto` → trust both http:// and https:// expansions of allowedHosts
   // (preview is https; local dev is http).
   protocol: "auto" as const,
@@ -115,17 +121,17 @@ const baseURL = explicitBaseURL ?? {
 
 // Origins Better Auth accepts on credentialed POSTs (sign-up/sign-in, etc.).
 // Missing entries here surface as FORBIDDEN "Invalid origin".
-const trustedOrigins: string[] = explicitBaseURL
-  ? [explicitBaseURL, ...LOCAL_DEV_ORIGINS]
-  : [
-      // Host wildcards (matched against Origin's host)
-      ...previewAllowedHosts,
-      // Full-origin wildcards (matched against Origin)
-      ...previewAllowedHosts.flatMap((host) => [`https://${host}`, `http://${host}`]),
-      ...LOCAL_DEV_ORIGINS,
-    ];
-
-const databaseUrl = env("DATABASE_URL");
+const trustedOrigins: string[] = [
+  ...(explicitBaseURL ? [explicitBaseURL] : []),
+  // Keep the canonical deployment origin trusted even when BETTER_AUTH_URL
+  // has not yet been copied into a newly renamed Vercel project.
+  CANONICAL_PRODUCTION_ORIGIN,
+  // Host wildcards (matched against Origin's host)
+  ...previewAllowedHosts,
+  // Full-origin wildcards (matched against Origin)
+  ...previewAllowedHosts.flatMap((host) => [`https://${host}`, `http://${host}`]),
+  ...LOCAL_DEV_ORIGINS,
+];
 
 // Static broker OAuth endpoints (skip OIDC discovery on every sign-in / callback).
 // Discovery would cost an extra network hop to the broker before the popup can
@@ -172,11 +178,25 @@ const grokOAuthPlugin = authConfigured
     })
   : null;
 
+// Prefer a dedicated Vercel BETTER_AUTH_SECRET. If a production project
+// has a persistent DATABASE_URL but its separate auth-secret setting was not
+// copied when the project/domain was renamed, derive a stable signing secret
+// from that server-only database credential instead of creating a different
+// random key in every serverless instance. A dedicated BETTER_AUTH_SECRET still
+// takes precedence and is recommended for independent rotation.
+const configuredAuthSecret = env("BETTER_AUTH_SECRET");
+const authSecret =
+  configuredAuthSecret ??
+  (process.env.NODE_ENV === "production" && databaseUrl
+    ? createHmac("sha256", databaseUrl)
+        .update("mvm3dforge:better-auth:production:v1")
+        .digest("hex")
+    : previewAuthSecret());
+
 export const auth = betterAuth({
   baseURL,
-  // Deployed apps inject BETTER_AUTH_SECRET. Preview: process-stable secret on
-  // globalThis so HMR doesn't invalidate PGLite-backed sessions (see above).
-  secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret(),
+  // Preview's process-stable secret keeps HMR from invalidating PGLite sessions.
+  secret: authSecret,
   database,
 
   // CSRF / origin check for credentialed auth POSTs (email sign-up/sign-in, …).

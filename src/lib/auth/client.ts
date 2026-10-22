@@ -35,7 +35,10 @@ export const authClient = createAuthClient({
  * with the key removed, sign-in is real in preview (baked preview client) and
  * when deployed (injected per-app client).
  */
-export const authEnabled = import.meta.env.VITE_AUTH_ENABLED !== "false";
+// This deployed app handles private cloud projects and API keys, so auth must
+// stay on for production builds even if an old Vercel project still carries the
+// template's VITE_AUTH_ENABLED=false override. The flag remains useful locally.
+export const authEnabled = import.meta.env.PROD || import.meta.env.VITE_AUTH_ENABLED !== "false";
 
 /** The upstream providers to render sign-in buttons for. */
 export { GROK_PROVIDERS };

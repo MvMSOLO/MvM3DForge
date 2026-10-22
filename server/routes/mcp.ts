@@ -52,13 +52,18 @@ function errorBody(code: number, message: string) {
 }
 
 export default defineEventHandler(async (event) => {
-  const node = event.node;
-  if (!node?.req || !node.res) {
+  // Nitro 3 / H3 v2 moved native Node handles from event.node to
+  // event.runtime.node. Keep the SDK's Node transport, but read the adapter
+  // from the current API instead of returning a false "context unavailable".
+  const runtimeNode = (event as H3Event & {
+    runtime?: { node?: { req?: IncomingMessage; res?: ServerResponse } };
+  }).runtime?.node;
+  if (!runtimeNode?.req || !runtimeNode.res) {
     setResponseStatus(event, 500);
-    return { error: "HTTP request context is unavailable." };
+    return { error: "This MCP deployment requires the Node.js request adapter." };
   }
-  const req = node.req as unknown as IncomingMessage;
-  const res = node.res as unknown as ServerResponse;
+  const req = runtimeNode.req;
+  const res = runtimeNode.res;
   const method = (req.method || "GET").toUpperCase();
 
   setHeader(event, "Vary", "Origin");
