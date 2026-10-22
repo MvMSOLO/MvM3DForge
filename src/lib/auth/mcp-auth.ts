@@ -9,11 +9,12 @@ export interface McpAuthResult {
   userId: string;
   scopes: string[];
   apiKeyId?: string;
+  unavailable?: boolean;
   error?: string;
 }
 
-function unauthenticated(error: string): McpAuthResult {
-  return { authenticated: false, userId: "", scopes: [], error };
+function unauthenticated(error: string, unavailable = false): McpAuthResult {
+  return { authenticated: false, userId: "", scopes: [], error, unavailable };
 }
 
 export async function validateMcpRequestAuth(event: H3Event): Promise<McpAuthResult> {
@@ -43,7 +44,7 @@ export async function validateMcpRequestAuth(event: H3Event): Promise<McpAuthRes
       }
     } catch {
       // Database failures must not become an authentication bypass.
-      return unauthenticated("API key verification is temporarily unavailable.");
+      return unauthenticated("API key verification is temporarily unavailable.", true);
     }
     return unauthenticated("Invalid, expired, or revoked API key.");
   }
