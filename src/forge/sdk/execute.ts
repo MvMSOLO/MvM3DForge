@@ -1187,7 +1187,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     });
     const discoveredMeshes = nodes.filter((object) => Boolean((object as THREE.Mesh).isMesh));
     let convertedMeshes = 0;
-    pushLog("info", [`Three.js bridge: discovered ${nodes.length} scene objects and ${discoveredMeshes.length} mesh objects.`]);
+    pushLog("log", [`Three.js bridge: discovered ${nodes.length} scene objects and ${discoveredMeshes.length} mesh objects.`]);
 
     // Create handles before linking parents, so child-before-parent insertion works.
     for (const object of nodes) {
@@ -1286,19 +1286,30 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       const c = threeScene.background;
       api.scene.background("#" + c.getHexString());
     }
-    pushLog("info", [`Three.js bridge: converted ${convertedMeshes} mesh objects into Forge nodes.`]);
+    pushLog("log", [`Three.js bridge: converted ${convertedMeshes} mesh objects into Forge nodes.`]);
     if (discoveredMeshes.length > 0 && convertedMeshes === 0) {
       pushLog("error", ["Three.js meshes were found but none could be converted. Check the mesh geometry and the console warnings above."]);
     }
   }
 
+  // Capture the familiar browser console API and route it into the Studio Console.
+  // User scripts should not have to know about the internal mvm.console helper.
+  const scriptConsole = {
+    log: (...args: unknown[]) => pushLog("log", args),
+    info: (...args: unknown[]) => pushLog("log", args),
+    debug: (...args: unknown[]) => pushLog("log", args),
+    warn: (...args: unknown[]) => pushLog("warn", args),
+    error: (...args: unknown[]) => pushLog("error", args),
+  };
+
   try {
-    const fn = new Function("mvm", "THREE", "scene", PRELUDE + code) as (
+    const fn = new Function("mvm", "THREE", "scene", "console", PRELUDE + code) as (
       mvm: typeof api,
       THREE: typeof THREE,
       scene: THREE.Scene,
+      console: typeof scriptConsole,
     ) => unknown;
-    const returned = fn(api, THREE, threeScene);
+    const returned = fn(api, THREE, threeScene, scriptConsole);
     if (returned && typeof (returned as Promise<unknown>).then === "function") {
       await returned;
     }
