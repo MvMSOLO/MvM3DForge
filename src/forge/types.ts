@@ -193,6 +193,8 @@ export type Project = {
   objects: SceneNode[];
   textures: TextureAsset[];
   clips: AnimClip[];
+  /** Script-requested clip to start in the viewport. */
+  autoplayClipId?: string | null;
   scene: SceneSettings;
   description: string;
 };
