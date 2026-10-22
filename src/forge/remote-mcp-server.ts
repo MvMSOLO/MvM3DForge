@@ -64,7 +64,10 @@ function primitiveGeometry(kind: "box" | "sphere" | "cylinder" | "cone" | "torus
   }
 }
 
-export function createPersistedMcpServer(\n  context: RemoteMcpContext,\n  repository: McpProjectRepository = databaseProjectRepository,\n): McpServer {
+export function createPersistedMcpServer(
+  context: RemoteMcpContext,
+  repository: McpProjectRepository = databaseProjectRepository,
+): McpServer {
   if (!context.userId) throw new Error("A verified user identity is required.");
   const server = new McpServer({ name: "MvM 3D Forge", version: "1.1.0" });
 
