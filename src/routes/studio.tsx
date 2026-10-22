@@ -95,6 +95,7 @@ function Studio() {
   const [copied, setCopied] = useState(false);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionsRef = useRef<Map<string, THREE.AnimationAction>>(new Map());
+  const syncedClipRef = useRef<string | null>(null);
   const syncPlaybackRef = useRef<() => void>(() => {});
 
   useEffect(() => {
@@ -143,13 +144,23 @@ function Studio() {
 
   useEffect(() => {
     syncPlaybackRef.current = () => {
-      for (const action of actionsRef.current.values()) action.stop();
-      if (!activeClipId) return;
+      if (!activeClipId) {
+        for (const action of actionsRef.current.values()) action.stop();
+        syncedClipRef.current = null;
+        return;
+      }
+      for (const [id, action] of actionsRef.current) {
+        if (id !== activeClipId) action.stop();
+      }
       const action = actionsRef.current.get(activeClipId);
       if (!action) return;
-      action.reset();
-      action.paused = !isPlaying;
-      action.play();
+      if (syncedClipRef.current !== activeClipId) {
+        action.reset();
+        action.play();
+        syncedClipRef.current = activeClipId;
+      } else if (isPlaying) {
+        action.play();
+      }
       action.paused = !isPlaying;
     };
     syncPlaybackRef.current();
@@ -204,6 +215,7 @@ function Studio() {
       renderScene = built.scene;
       mixer = new THREE.AnimationMixer(renderScene);
       actionsRef.current.clear();
+      syncedClipRef.current = null;
       for (const clip of animationClips(project, built.byId)) {
         const sourceClip = project.clips.find((item) => item.name === clip.name);
         const action = mixer.clipAction(clip);
