@@ -47,6 +47,76 @@ function textResult(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
 }
 
+/**
+ * Three.js GLTFExporter uses the browser FileReader API to pack the binary GLB
+ * Blob. On Node runtimes without FileReader, provide the small subset the
+ * exporter needs, backed by the native Blob.arrayBuffer() implementation.
+ */
+function ensureServerFileReader(): void {
+  const root = globalThis as typeof globalThis & { FileReader?: typeof FileReader };
+  if (root.FileReader) return;
+
+  type Handler = ((this: FileReader, event: ProgressEvent<FileReader>) => unknown) | null;
+
+  class ServerFileReader {
+    readonly EMPTY = 0;
+    readonly LOADING = 1;
+    readonly DONE = 2;
+    readyState = this.EMPTY;
+    result: string | ArrayBuffer | null = null;
+    error: DOMException | null = null;
+    onload: Handler = null;
+    onloadend: Handler = null;
+    onerror: Handler = null;
+
+    readAsArrayBuffer(blob: Blob): void {
+      void this.read(blob, async () => blob.arrayBuffer());
+    }
+
+    readAsDataURL(blob: Blob): void {
+      void this.read(blob, async () => {
+        const data = Buffer.from(await blob.arrayBuffer()).toString("base64");
+        return `data:${blob.type || "application/octet-stream"};base64,${data}`;
+      });
+    }
+
+    readAsText(blob: Blob, encoding = "utf-8"): void {
+      void this.read(blob, async () => new TextDecoder(encoding).decode(await blob.arrayBuffer()));
+    }
+
+    abort(): void {
+      this.result = null;
+      this.readyState = this.DONE;
+      this.onloadend?.call(this as unknown as FileReader, this.event());
+    }
+
+    private event(): ProgressEvent<FileReader> {
+      return { target: this, currentTarget: this } as unknown as ProgressEvent<FileReader>;
+    }
+
+    private async read(blob: Blob, operation: () => Promise<string | ArrayBuffer>): Promise<void> {
+      this.readyState = this.LOADING;
+      this.result = null;
+      this.error = null;
+      try {
+        this.result = await operation();
+        this.readyState = this.DONE;
+        this.onload?.call(this as unknown as FileReader, this.event());
+      } catch (cause) {
+        this.error = cause instanceof DOMException
+          ? cause
+          : new DOMException(cause instanceof Error ? cause.message : "FileReader operation failed.");
+        this.readyState = this.DONE;
+        this.onerror?.call(this as unknown as FileReader, this.event());
+      } finally {
+        this.onloadend?.call(this as unknown as FileReader, this.event());
+      }
+    }
+  }
+
+  root.FileReader = ServerFileReader as unknown as typeof FileReader;
+}
+
 function primitiveGeometry(kind: "box" | "sphere" | "cylinder" | "cone" | "torus" | "plane"): GeometrySpec {
   switch (kind) {
     case "box":
@@ -373,6 +443,7 @@ export function createPersistedMcpServer(
       requireScope("assets:export");
       const project = await getProject(args.projectId);
       const built = await assembleScene(project, { mode: "material", shadows: false, onlyVisible: true });
+      ensureServerFileReader();
       const exporter = new GLTFExporter();
       const output = await new Promise<ArrayBuffer>((resolve, reject) => {
         exporter.parse(
