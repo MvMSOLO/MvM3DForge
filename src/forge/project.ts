@@ -6,13 +6,28 @@ import { starterById, type StarterId } from "./examples.ts";
 import { executeUserCode } from "./sdk/execute.ts";
 
 export function applyScriptPatch(project: Project, patch: ScriptPatch): Project {
+  // A script that only declares materials/settings must not erase a previously built scene.
+  // Scene replacement is explicit when objects are added; an intentional empty scene uses clear().
+  const mutation = patch.sceneMutation ?? (patch.objects.length > 0 ? "replace" : "none");
+  const preserveScriptState = mutation === "none";
+  const replaceScriptState = mutation === "replace" || mutation === "clear";
+  const objects = preserveScriptState
+    ? project.objects
+    : [...project.objects.filter((node) => node.source !== "script"), ...patch.objects];
+  const textures = preserveScriptState && patch.textures.length === 0
+    ? project.textures
+    : [...project.textures.filter((tex) => tex.source !== "script"), ...patch.textures];
+  const clips = preserveScriptState && patch.clips.length === 0
+    ? project.clips
+    : [...project.clips.filter((clip) => clip.source !== "script"), ...patch.clips];
+
   return {
     ...project,
     name: patch.projectName ?? project.name,
-    objects: [...project.objects.filter((node) => node.source !== "script"), ...patch.objects],
-    textures: [...project.textures.filter((tex) => tex.source !== "script"), ...patch.textures],
-    clips: [...project.clips.filter((clip) => clip.source !== "script"), ...patch.clips],
-    autoplayClipId: patch.autoplayClipId ?? null,
+    objects,
+    textures,
+    clips,
+    autoplayClipId: preserveScriptState ? project.autoplayClipId : patch.autoplayClipId ?? null,
     scene: {
       ...project.scene,
       background: patch.background ?? project.scene.background,
