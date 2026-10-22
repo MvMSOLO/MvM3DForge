@@ -50,6 +50,7 @@ type TexHandle = {
 };
 
 type PendingThreeTrack = {
+  id: string;
   clipId: string;
   object: THREE.Object3D;
   property: AnimProperty;
@@ -978,6 +979,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
             // has converted all Object3D instances. This supports mvm.animation.track on
             // THREE.Mesh, THREE.Group and other native Three.js objects.
             pendingThreeTracks.push({
+              id: trackId,
               clipId: clip.id,
               object: nativeTarget,
               property,
@@ -1246,8 +1248,9 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       if (object !== threeScene && (object as THREE.Object3D).isObject3D) nodes.push(object);
     });
     const discoveredMeshes = nodes.filter((object) => Boolean((object as THREE.Mesh).isMesh));
+    const existingForgeNodes = [...internals.values()].filter((item) => item.inScene).length;
     let convertedMeshes = 0;
-    pushLog("log", [`Three.js bridge: discovered ${nodes.length} scene objects and ${discoveredMeshes.length} mesh objects.`]);
+    pushLog("log", [`Three.js bridge: discovered ${nodes.length} scene objects and ${discoveredMeshes.length} mesh objects in the native Three.js scene; ${existingForgeNodes} Forge API nodes already exist.`]);
 
     // Create handles before linking parents, so child-before-parent insertion works.
     for (const object of nodes) {
@@ -1380,7 +1383,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
         continue;
       }
       clip.tracks.push({
-        id: crypto.randomUUID(),
+        id: pending.id,
         objectId: handle.id,
         property: pending.property,
         interpolation: pending.interpolation,
@@ -1392,7 +1395,8 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       const c = threeScene.background;
       api.scene.background("#" + c.getHexString());
     }
-    pushLog("log", [`Three.js bridge: converted ${convertedMeshes} mesh objects into Forge nodes.`]);
+    const totalForgeNodes = [...internals.values()].filter((item) => item.inScene).length;
+    pushLog("log", [`Three.js bridge: converted ${convertedMeshes} mesh objects into Forge nodes. Total Forge scene nodes: ${totalForgeNodes}.`]);
     if (discoveredMeshes.length > 0 && convertedMeshes === 0) {
       pushLog("error", ["Three.js meshes were found but none could be converted. Check the mesh geometry and the console warnings above."]);
     }
