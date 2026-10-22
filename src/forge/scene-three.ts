@@ -213,28 +213,48 @@ export async function assembleScene(
   const scene = new THREE.Scene();
   const byId = new Map<string, THREE.Object3D>();
   let shadowsLeft = 1;
+
+  // Build all nodes first so child nodes can resolve parents regardless of order.
   for (const node of project.objects) {
     if (options.onlyVisible && !node.visible) continue;
     const allowShadow = Boolean(node.light?.castShadow) && shadowsLeft > 0 && options.shadows;
     if (allowShadow) shadowsLeft -= 1;
-    const object = await buildObject(node, project.textures, options.mode, options.shadows && (allowShadow || node.type === "mesh"));
+    const object = await buildObject(
+      node,
+      project.textures,
+      options.mode,
+      options.shadows && (allowShadow || node.type === "mesh"),
+    );
     if (!object) continue;
-    if (object.userData.mvmTarget instanceof THREE.Object3D) scene.add(object.userData.mvmTarget);
+    byId.set(node.id, object);
+    object.userData.mvmId = node.id;
+    object.name = node.name;
+  }
+
   const roots: THREE.Object3D[] = [];
   for (const node of project.objects) {
     const object = byId.get(node.id);
     if (!object) continue;
     const parent = node.parentId ? byId.get(node.parentId) : undefined;
-    if (parent) parent.add(object);
-    else {
+    if (parent && parent !== object) {
+      parent.add(object);
+    } else {
       scene.add(object);
       roots.push(object);
     }
     applyLocalTransform(object, node);
   }
+
+  // Directional/spot light targets must be part of the scene graph.
+  scene.traverse((object) => {
+    const light = object as THREE.DirectionalLight | THREE.SpotLight;
+    if ((light instanceof THREE.DirectionalLight || light instanceof THREE.SpotLight) && light.target.parent === null) {
+      scene.add(light.target);
+    }
+  });
+
   return { scene, byId, roots };
 }
-
 export function animationClips(
   project: Pick<Project, "clips" | "objects">,
   byId: Map<string, THREE.Object3D>,
