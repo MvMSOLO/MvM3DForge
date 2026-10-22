@@ -118,7 +118,7 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
     ];
     pillarPositions.forEach((pos, index) => {
       const pillar = new THREE.Mesh(pillarGeo, pillarMaterial);
-      pillar.name = `Support_Pillar_${index + 1}`;
+      pillar.name = "Support_Pillar_" + (index + 1);
       pillar.position.set(pos[0], pos[1], pos[2]);
       root.add(pillar);
     });
