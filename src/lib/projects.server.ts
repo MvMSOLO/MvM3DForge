@@ -1,5 +1,5 @@
-import { getSql } from "@/lib/db";
-import type { Project, SceneNode, AnimClip, TextureAsset, SceneSettings } from "@/forge/types";
+import { getSql } from "./db.ts";
+import type { Project, SceneNode, AnimClip, TextureAsset, SceneSettings } from "../forge/types.ts";
 
 export interface DBProjectRow {
   id: string;
