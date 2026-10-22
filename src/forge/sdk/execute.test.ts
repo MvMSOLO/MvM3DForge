@@ -106,6 +106,39 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
     baseMesh.position.set(0, 0.25, 0);
     root.add(baseMesh);
 
+    // Match all geometry paths used by the user's pavilion script.
+    const pillarGeo = mvm.geometry.cylinder({
+      radiusTop: 0.15, radiusBottom: 0.15, height: 4, radialSegments: 16
+    });
+    const pillarMaterial = mvm.material.pbr({
+      color: "#444444", roughness: 0.4, metalness: 0.8
+    });
+    const pillarPositions = [
+      [-4, 2.25, -4], [4, 2.25, -4], [-4, 2.25, 4], [4, 2.25, 4]
+    ];
+    pillarPositions.forEach((pos, index) => {
+      const pillar = new THREE.Mesh(pillarGeo, pillarMaterial);
+      pillar.name = `Support_Pillar_${index + 1}`;
+      pillar.position.set(pos[0], pos[1], pos[2]);
+      root.add(pillar);
+    });
+
+    const glassGeo = mvm.geometry.box({ width: 7.8, height: 3.8, depth: 0.1 });
+    const glassMaterial = mvm.material.pbr({
+      color: "#336699", roughness: 0.1, metalness: 0.9,
+      transparent: true, opacity: 0.4
+    });
+    const glassPane = new THREE.Mesh(glassGeo, glassMaterial);
+    glassPane.name = "Glass_Wall_Rear";
+    glassPane.position.set(0, 2.15, -3.9);
+    root.add(glassPane);
+
+    const roofGeo = mvm.geometry.box({ width: 12.4, height: 0.4, depth: 12.4 });
+    const roofMesh = new THREE.Mesh(roofGeo, marbleMaterial);
+    roofMesh.name = "Roof_Canopy";
+    roofMesh.position.set(0, 4.45, 0);
+    root.add(roofMesh);
+
     const coreGeo = mvm.geometry.torus({ radius: 0.8, tube: 0.15, radialSegments: 16, tubularSegments: 48 });
     const coreMaterial = mvm.material.pbr({
       color: "#00FFCC",
@@ -129,6 +162,10 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
     root.add(nativeMesh);
 
     mvm.scene.add(root);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    ambientLight.name = "Ambient_Fill";
+    scene.add(ambientLight);
+
     const sun = new THREE.DirectionalLight(0xFFFAED, 0.8);
     sun.name = "Main_Sunlight";
     sun.position.set(8, 12, 6);
@@ -163,25 +200,35 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
   if (!result.ok) return;
 
   const meshes = result.patch.objects.filter((node) => node.type === "mesh");
-  assert.equal(meshes.length, 3);
+  assert.equal(meshes.length, 9);
   const podium = result.patch.objects.find((node) => node.name === "Podium_Base");
   const core = result.patch.objects.find((node) => node.name === "Kinetic_Core");
   const native = result.patch.objects.find((node) => node.name === "Native_Mesh");
+  const glass = result.patch.objects.find((node) => node.name === "Glass_Wall_Rear");
+  const roof = result.patch.objects.find((node) => node.name === "Roof_Canopy");
   assert.ok(podium);
   assert.ok(core);
   assert.ok(native);
+  assert.ok(glass);
+  assert.ok(roof);
+  for (let index = 1; index <= 4; index += 1) {
+    assert.ok(result.patch.objects.some((node) => node.name === `Support_Pillar_${index}`));
+  }
   assert.equal(podium?.geometry?.kind, "box");
   assert.equal(podium?.material?.color, "#dfdcd6");
   assert.equal(core?.geometry?.kind, "torus");
   assert.equal(core?.material?.color, "#00ffcc");
+  assert.equal(glass?.material?.opacity, 0.4);
+  assert.equal(roof?.geometry?.kind, "box");
   assert.equal(native?.geometry?.kind, "custom");
   assert.equal(result.patch.objects.some((node) => node.name === "Pavilion_Structure" && node.type === "group"), true);
   assert.equal(result.patch.objects.some((node) => node.name === "Main_Sunlight" && node.type === "light"), true);
+  assert.equal(result.patch.objects.some((node) => node.name === "Ambient_Fill" && node.type === "light"), true);
   assert.equal(result.patch.clips[0]?.tracks.length, 2);
   assert.equal(result.patch.clips[0]?.tracks.every((track) => track.objectId === core?.id), true);
   assert.equal(result.patch.autoplayClipId, result.patch.clips[0]?.id);
   assert.match(result.logs.map((log) => log.message).join("\n"), /discovered [1-9]\d* scene objects and [1-9]\d* mesh objects/);
-  assert.match(result.logs.map((log) => log.message).join("\n"), /converted 3 mesh objects into Forge nodes/);
+  assert.match(result.logs.map((log) => log.message).join("\n"), /converted 9 mesh objects into Forge nodes/);
 });
 
 test("animation track and export request are recorded", async () => {
