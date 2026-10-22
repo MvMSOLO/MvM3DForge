@@ -33,7 +33,7 @@ import { betterAuth } from "better-auth";
 import { bearer, genericOAuth } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
@@ -69,6 +69,8 @@ const env = (key: string): string | undefined => {
   const value = process.env[key]?.trim();
   return value ? value : undefined;
 };
+
+const databaseUrl = env("DATABASE_URL");
 
 // Explicit off-switch. The deployer sets `VITE_AUTH_ENABLED=true` when it
 // provisions auth; set it to "false" to force auth off everywhere (dev user).
@@ -131,8 +133,6 @@ const trustedOrigins: string[] = [
   ...LOCAL_DEV_ORIGINS,
 ];
 
-const databaseUrl = env("DATABASE_URL");
-
 // Static broker OAuth endpoints (skip OIDC discovery on every sign-in / callback).
 // Discovery would cost an extra network hop to the broker before the popup can
 // even redirect to Google/X — the live-preview popup felt stuck on the app for
@@ -178,11 +178,25 @@ const grokOAuthPlugin = authConfigured
     })
   : null;
 
+// Prefer a dedicated Vercel BETTER_AUTH_SECRET. If a production project
+// has a persistent DATABASE_URL but its separate auth-secret setting was not
+// copied when the project/domain was renamed, derive a stable signing secret
+// from that server-only database credential instead of creating a different
+// random key in every serverless instance. A dedicated BETTER_AUTH_SECRET still
+// takes precedence and is recommended for independent rotation.
+const configuredAuthSecret = env("BETTER_AUTH_SECRET");
+const authSecret =
+  configuredAuthSecret ??
+  (process.env.NODE_ENV === "production" && databaseUrl
+    ? createHmac("sha256", databaseUrl)
+        .update("mvm3dforge:better-auth:production:v1")
+        .digest("hex")
+    : previewAuthSecret());
+
 export const auth = betterAuth({
   baseURL,
-  // Deployed apps inject BETTER_AUTH_SECRET. Preview: process-stable secret on
-  // globalThis so HMR doesn't invalidate PGLite-backed sessions (see above).
-  secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret(),
+  // Preview's process-stable secret keeps HMR from invalidating PGLite sessions.
+  secret: authSecret,
   database,
 
   // CSRF / origin check for credentialed auth POSTs (email sign-up/sign-in, …).
