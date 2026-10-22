@@ -1,5 +1,7 @@
 import { defineEventHandler, getHeader, readBody, setHeader, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createPersistedMcpServer } from "@/forge/remote-mcp-server";
 import { dbSource } from "@/lib/db";
@@ -50,8 +52,13 @@ function errorBody(code: number, message: string) {
 }
 
 export default defineEventHandler(async (event) => {
-  const req = event.node.req;
-  const res = event.node.res;
+  const node = event.node;
+  if (!node?.req || !node.res) {
+    setResponseStatus(event, 500);
+    return { error: "HTTP request context is unavailable." };
+  }
+  const req = node.req as unknown as IncomingMessage;
+  const res = node.res as unknown as ServerResponse;
   const method = (req.method || "GET").toUpperCase();
 
   setHeader(event, "Vary", "Origin");
@@ -106,8 +113,8 @@ export default defineEventHandler(async (event) => {
     return errorBody(-32001, auth.error || "Authentication required.");
   }
 
-  let server;
-  let transport;
+  let server: McpServer | undefined;
+  let transport: StreamableHTTPServerTransport | undefined;
   try {
     server = createPersistedMcpServer({ userId: auth.userId, scopes: auth.scopes });
     transport = new StreamableHTTPServerTransport({
