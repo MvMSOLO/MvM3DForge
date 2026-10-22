@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { starters } from "../examples.ts";
+import { applyScriptPatch } from "../project.ts";
+import { projectShell } from "../nodes.ts";
 import { executeUserCode } from "./execute.ts";
 
 test("documented primitive sample builds named meshes", async () => {
@@ -21,6 +23,65 @@ test("documented primitive sample builds named meshes", async () => {
   assert.deepEqual(body?.position, [-1, 1.5, 0]);
   assert.equal(body?.material?.color, "#247bff");
   assert.equal(result.logs[0]?.message.includes("Forge Body"), true);
+});
+
+test("PBR names and transparent flags survive normalization", async () => {
+  const result = await executeUserCode(`
+    const glass = mvm.material.pbr({
+      name: "Tinted_Glass",
+      color: "#336699",
+      roughness: 0.1,
+      metalness: 0.9,
+      transparent: true,
+      opacity: 0.4
+    });
+    const pane = mvm.geometry.box({ width: 2, height: 3, depth: 0.1, name: "Glass_Pane" });
+    pane.material = glass;
+    mvm.scene.add(pane);
+  `);
+  assert.equal(result.ok, true, result.ok ? "" : result.error.message);
+  if (!result.ok) return;
+  const pane = result.patch.objects.find((node) => node.name === "Glass_Pane");
+  assert.equal(pane?.material?.name, "Tinted_Glass");
+  assert.equal(pane?.material?.opacity, 0.4);
+  assert.equal(pane?.material?.alphaMode, "BLEND");
+  assert.equal(result.patch.sceneMutation, "replace");
+});
+
+test("materials-only runs are marked as non-mutating and preserve the current scene", async () => {
+  const model = await executeUserCode(`
+    const base = mvm.geometry.box({ width: 4, height: 0.5, depth: 4, name: "Existing_Base" });
+    mvm.scene.add(base);
+  `);
+  assert.equal(model.ok, true, model.ok ? "" : model.error.message);
+  if (!model.ok) return;
+
+  const initial = applyScriptPatch(projectShell("Regression Scene"), model.patch);
+  const materialOnly = await executeUserCode(`
+    const marbleMaterial = mvm.material.pbr({
+      name: "Base_Marble", color: "#DFDCD6", roughness: 0.2, metalness: 0.1
+    });
+    const pillarMaterial = mvm.material.pbr({
+      name: "Brushed_Steel", color: "#444444", roughness: 0.4, metalness: 0.8
+    });
+    const glassMaterial = mvm.material.pbr({
+      name: "Tinted_Glass", color: "#336699", roughness: 0.1, metalness: 0.9,
+      transparent: true, opacity: 0.4
+    });
+    const emissiveCoreMaterial = mvm.material.pbr({
+      name: "Kinetic_Core_Mat", color: "#00FFCC", emissive: "#00FFCC",
+      emissiveIntensity: 2.0, roughness: 0.5, metalness: 0.2
+    });
+  `);
+  assert.equal(materialOnly.ok, true, materialOnly.ok ? "" : materialOnly.error.message);
+  if (!materialOnly.ok) return;
+  assert.equal(materialOnly.patch.objects.length, 0);
+  assert.equal(materialOnly.patch.sceneMutation, "none");
+  assert.ok(materialOnly.logs.some((entry) => entry.level === "warn" && /material declarations.*do not create geometry/i.test(entry.message)));
+
+  const next = applyScriptPatch(initial, materialOnly.patch);
+  assert.deepEqual(next.objects.map((node) => node.id), initial.objects.map((node) => node.id));
+  assert.deepEqual(next.clips.map((clip) => clip.id), initial.clips.map((clip) => clip.id));
 });
 
 test("invalid dimensions name the parameter", async () => {
@@ -97,6 +158,7 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
 
     const baseGeo = mvm.geometry.box({ width: 12, height: 0.5, depth: 12 });
     const marbleMaterial = mvm.material.pbr({
+      name: "Base_Marble",
       color: "#DFDCD6",
       roughness: 0.2,
       metalness: 0.1
@@ -111,6 +173,7 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
       radiusTop: 0.15, radiusBottom: 0.15, height: 4, radialSegments: 16
     });
     const pillarMaterial = mvm.material.pbr({
+      name: "Brushed_Steel",
       color: "#444444", roughness: 0.4, metalness: 0.8
     });
     const pillarPositions = [
@@ -125,6 +188,7 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
 
     const glassGeo = mvm.geometry.box({ width: 7.8, height: 3.8, depth: 0.1 });
     const glassMaterial = mvm.material.pbr({
+      name: "Tinted_Glass",
       color: "#336699", roughness: 0.1, metalness: 0.9,
       transparent: true, opacity: 0.4
     });
@@ -141,6 +205,7 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
 
     const coreGeo = mvm.geometry.torus({ radius: 0.8, tube: 0.15, radialSegments: 16, tubularSegments: 48 });
     const coreMaterial = mvm.material.pbr({
+      name: "Kinetic_Core_Mat",
       color: "#00FFCC",
       emissive: "#00FFCC",
       emissiveIntensity: 2,
@@ -216,9 +281,13 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
   }
   assert.equal(podium?.geometry?.kind, "box");
   assert.equal(podium?.material?.color, "#dfdcd6");
+  assert.equal(podium?.material?.name, "Base_Marble");
   assert.equal(core?.geometry?.kind, "torus");
   assert.equal(core?.material?.color, "#00ffcc");
+  assert.equal(core?.material?.name, "Kinetic_Core_Mat");
+  assert.equal(glass?.material?.name, "Tinted_Glass");
   assert.equal(glass?.material?.opacity, 0.4);
+  assert.equal(glass?.material?.alphaMode, "BLEND");
   assert.equal(roof?.geometry?.kind, "box");
   assert.equal(native?.geometry?.kind, "custom");
   assert.equal(result.patch.objects.some((node) => node.name === "Pavilion_Structure" && node.type === "group"), true);
