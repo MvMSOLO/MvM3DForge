@@ -12,6 +12,7 @@ export function applyScriptPatch(project: Project, patch: ScriptPatch): Project 
     objects: [...project.objects.filter((node) => node.source !== "script"), ...patch.objects],
     textures: [...project.textures.filter((tex) => tex.source !== "script"), ...patch.textures],
     clips: [...project.clips.filter((clip) => clip.source !== "script"), ...patch.clips],
+    autoplayClipId: patch.autoplayClipId ?? null,
     scene: {
       ...project.scene,
       background: patch.background ?? project.scene.background,
@@ -77,6 +78,7 @@ export function migrateProject(raw: unknown): Project {
     objects: Array.isArray(data.objects) && data.objects.length ? data.objects : editorRig(),
     textures: Array.isArray(data.textures) ? data.textures : [],
     clips: Array.isArray(data.clips) ? data.clips : [],
+    autoplayClipId: typeof data.autoplayClipId === "string" ? data.autoplayClipId : null,
     scene,
     description: typeof data.description === "string" ? data.description : "",
   };
