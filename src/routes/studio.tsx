@@ -29,6 +29,9 @@ import { animationClips, assembleScene } from "@/forge/scene-three.ts";
 import { useStudioStore, useHistoryStore } from "@/forge/store";
 import { PropertyInspector } from "@/components/PropertyInspector";
 import { CommandPalette } from "@/components/CommandPalette";
+import { McpApiKeysPanel } from "@/components/McpApiKeysPanel";
+import { CloudProjectsPanel } from "@/components/CloudProjectsPanel";
+import type { Project } from "@/forge/types.ts";
 
 export const Route = createFileRoute("/studio")({ component: Studio });
 
@@ -234,6 +237,17 @@ function Studio() {
 
   async function copyAIContext() {
     await copyText(AI_CONTEXT_PROMPT, "Forge AI context copied — paste it into your AI assistant");
+  }
+
+  function openCloudProject(cloudProject: Project) {
+    useHistoryStore.getState().clearHistory();
+    setProject(cloudProject);
+    setCode(cloudProject.code || "");
+    setSelectedObjectId(null);
+    setActiveClipId(cloudProject.autoplayClipId ?? cloudProject.clips[0]?.id ?? null);
+    setIsPlaying(false);
+    setMessage(`Cloud project “${cloudProject.name}” loaded`);
+    setLogs([]);
   }
 
   useEffect(() => {
@@ -803,6 +817,13 @@ function Studio() {
 
           {activeTab === "integrations" && (
             <div className="forge-integrations flex-1 overflow-auto p-4">
+              <McpApiKeysPanel />
+              <CloudProjectsPanel
+                project={project}
+                code={code}
+                onOpen={openCloudProject}
+                onStatus={setMessage}
+              />
               <div className="mb-4 rounded-xl border border-[#83f0ce]/20 bg-[#83f0ce]/[.045] p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   <Layers3 size={16} className="text-[#83f0ce]" /> Forge capability map
