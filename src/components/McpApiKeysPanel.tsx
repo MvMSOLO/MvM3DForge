@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { authEnabled } from "@/lib/auth/client";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { Check, Copy, KeyRound, LoaderCircle, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 
 type Scope = "project:read" | "scene:write" | "assets:export";
@@ -35,22 +37,36 @@ export function McpApiKeysPanel() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
-  async function reload() {
+  const reload = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const response = await fetch("/api/mcp-keys", { credentials: "same-origin" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load API keys.");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Could not load API keys (HTTP ${response.status}).`);
       setKeys(Array.isArray(data.keys) ? data.keys : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load API keys.");
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  useEffect(() => { void reload(); }, []);
+  useEffect(() => {
+    if (!authEnabled) {
+      setLoading(false);
+      setError("");
+      return;
+    }
+    if (isPending) return;
+    if (!user) {
+      setKeys([]);
+      setLoading(false);
+      setError("");
+      return;
+    }
+    void reload();
+  }, [authEnabled, isPending, user?.id, reload]);
 
   async function createKey() {
     setCreating(true);
@@ -106,6 +122,47 @@ export function McpApiKeysPanel() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not revoke API key.");
     }
+  }
+
+  if (authEnabled && isPending) {
+    return (
+      <section className="mb-6 rounded-xl border border-white/[0.09] bg-[#0b1219] p-5">
+        <div className="flex items-center gap-3 text-sm text-slate-300">
+          <LoaderCircle size={16} className="animate-spin text-[#83f0ce]" />
+          Checking your sign-in status…
+        </div>
+      </section>
+    );
+  }
+
+  if (!authEnabled) {
+    return (
+      <section className="mb-6 rounded-xl border border-amber-300/20 bg-[#0b1219] p-5">
+        <h3 className="text-sm font-semibold text-slate-100">Sign-in is not enabled</h3>
+        <p className="mt-2 text-xs leading-5 text-slate-400">
+          Real authentication must be enabled before personal API keys can be created. Reload after deployment configuration is updated.
+        </p>
+      </section>
+    );
+  }
+
+  if (!user) {
+    return (
+      <section className="mb-6 rounded-xl border border-[#83f0ce]/20 bg-[#0b1219] p-5">
+        <div className="flex items-center gap-3">
+          <div className="grid size-10 shrink-0 place-items-center rounded-xl border border-[#83f0ce]/20 bg-[#83f0ce]/[.08] text-[#83f0ce]">
+            <KeyRound size={18} />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-slate-100">Sign in to create an API key</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-400">API keys belong to your account, so sign in before creating or managing them.</p>
+          </div>
+        </div>
+        <a href="/login?next=%2Fstudio" className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg bg-[#83f0ce] px-4 py-2.5 text-xs font-bold text-[#071511] transition hover:bg-[#a1f7dc]">
+          Sign in / Create account
+        </a>
+      </section>
+    );
   }
 
   return (
