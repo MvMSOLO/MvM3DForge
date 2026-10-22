@@ -1,17 +1,13 @@
-import { defineEventHandler, getHeader, getQuery, readBody, setResponseStatus } from "h3";
+import { defineEventHandler, getQuery, readBody, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
 import { auth, authConfigured } from "@/lib/auth/server";
 import { dbSource } from "@/lib/db";
 import { createMcpApiKey, listMcpApiKeys, revokeMcpApiKey, MCP_SCOPES } from "@/lib/mcp/api-keys.server";
 
 function requestHeaders(event: H3Event): Headers {
-  const headers = new Headers();
-  const raw = event.node?.req?.headers ?? {};
-  for (const [name, value] of Object.entries(raw)) {
-    if (value == null) continue;
-    headers.set(name, Array.isArray(value) ? value.join(", ") : String(value));
-  }
-  return headers;
+  // Read cookies and origin from the Web Request, which is stable across
+  // Nitro's Node and web-standard request adapters.
+  return new Headers(event.req.headers);
 }
 
 async function signedInUserId(event: H3Event): Promise<string | null> {
@@ -21,9 +17,9 @@ async function signedInUserId(event: H3Event): Promise<string | null> {
 }
 
 function originIsAllowed(event: H3Event): boolean {
-  const origin = getHeader(event, "origin");
+  const origin = event.req.headers.get("origin");
   if (!origin) return true;
-  const host = getHeader(event, "host") || getHeader(event, "x-forwarded-host");
+  const host = event.req.headers.get("host") || event.req.headers.get("x-forwarded-host");
   if (!host) return false;
   try {
     return new URL(origin).host.toLowerCase() === host.split(",")[0].trim().toLowerCase();
@@ -33,7 +29,7 @@ function originIsAllowed(event: H3Event): boolean {
 }
 
 export default defineEventHandler(async (event) => {
-  const method = (event.node?.req?.method || "GET").toUpperCase();
+  const method = event.req.method.toUpperCase();
   setResponseStatus(event, 200);
 
   if (!originIsAllowed(event)) {
