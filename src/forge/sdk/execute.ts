@@ -1310,15 +1310,26 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       const carriedMaterial: unknown = meshLike.userData?.mvmForgeMaterial ?? meshLike.material;
       if (meshLike.isMesh && rawGeometry instanceof PublicObject) {
         // mvm.geometry.box/sphere/torus return Forge mesh handles (GeometrySpec), not
-        // Three.js BufferGeometry objects. If users wrap one in THREE.Mesh, reuse that
-        // Forge handle and copy the native mesh's name, transform, visibility and material.
-        handle = rawGeometry;
-        handle.name = object.name || handle.name || object.type || "Mesh";
-        if (isForgeMaterialSpec(carriedMaterial)) {
-          handle.material = carriedMaterial;
-        } else {
-          handle.material = materialOptions(carriedMaterial as THREE.Material | THREE.Material[]);
+        // Three.js BufferGeometry objects. In Three.js, one geometry may be reused by
+        // many Mesh instances (e.g. four pavilion pillars). Clone its Forge GeometrySpec
+        // for each Mesh so names, transforms, parents and animation tracks stay independent.
+        const source = internals.get(rawGeometry.id);
+        if (!source?.node.geometry) {
+          pushLog("warn", [`Skipped mesh "${object.name || object.type}": the attached Forge handle has no geometry spec.`]);
+          continue;
         }
+        const material = isForgeMaterialSpec(carriedMaterial)
+          ? carriedMaterial
+          : materialOptions(carriedMaterial as THREE.Material | THREE.Material[]);
+        handle = publicOf(makeInternal({
+          name: object.name || source.node.name || object.type || "Mesh",
+          type: "mesh",
+          geometry: structuredClone(source.node.geometry),
+          material: structuredClone(material),
+          position: [0, 0, 0],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+        }));
         convertedMeshes += 1;
       } else if (meshLike.isMesh && geometryLike?.isBufferGeometry) {
         const geometry = geometryLike;
