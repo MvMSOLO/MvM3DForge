@@ -1,9 +1,9 @@
 import React from "react";
 import { useStudioStore } from "@/forge/store";
-import { Eye, EyeOff, Lock, Unlock, Trash2, Copy, Layers } from "lucide-react";
+import { Eye, EyeOff, Lock, Unlock, Trash2, Layers } from "lucide-react";
 
 export function PropertyInspector() {
-  const { project, selectedObjectId, updateNodeTransform, updateNodeProperties, removeNode, setSelectedObjectId } = useStudioStore();
+  const { project, selectedObjectId, updateNodeTransform, updateNodeProperties, removeNode } = useStudioStore();
 
   if (!project) return null;
 

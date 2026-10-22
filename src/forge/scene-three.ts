@@ -107,7 +107,7 @@ export async function materialFor(
 }
 
 export function uniqueExportName(name: string, used: Set<string>): string {
-  const base = name.replace(/[^\w .+\-]/g, "").trim() || "Node";
+  const base = name.replace(/[^\w .+-]/g, "").trim() || "Node";
   let next = base;
   let index = 2;
   while (used.has(next)) {
