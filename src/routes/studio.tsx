@@ -141,14 +141,18 @@ function Studio() {
   async function runCode() {
     if (!project || running) return;
     setRunning(true);
+    setLogs([]);
     setMessage("Running code in the restricted MVM SDK…");
     try {
       const result = await executeUserCode(code);
-      setLogs(result.logs.map((entry) => entry.message));
+      const nextLogs = result.logs.map((entry) => entry.message);
       if (!result.ok) {
+        setLogs([...nextLogs, `[${result.error.code}] ${result.error.message}`]);
         setMessage(result.error.message);
+        setTab("console");
         return;
       }
+      setLogs(nextLogs);
       const next = applyScriptPatch(project, result.patch);
       setProject(next);
       setSelected(null);
