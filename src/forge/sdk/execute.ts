@@ -1084,7 +1084,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       }
       if (o.target !== undefined) light.target = asVec3(o.target, `${apiName}.target`);
       else if (kind === "directional" || kind === "spot") light.target = [0, 0.5, 0];
-      const position = o.position ? asVec3(o.position, `${apiName}.position`) : [0, kind === "ambient" ? 0 : 3, 0];
+      const position: Vec3 = o.position ? asVec3(o.position, `${apiName}.position`) : [0, kind === "ambient" ? 0 : 3, 0];
       const internal = makeInternal({
         name: clipName(o.name, kind[0].toUpperCase() + kind.slice(1) + " Light"),
         type: "light",
@@ -1284,7 +1284,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
         if (object instanceof THREE.SkinnedMesh || geometry.morphAttributes.position?.length) {
           pushLog("warn", [`Mesh "${object.name || object.type}" uses skinning or morph targets. This converter currently preserves its base geometry only; deformation/rig animation will not carry into Forge.`]);
         }
-        if (geometry.groups.length > 0 && Array.isArray(object.material) && object.material.length > 1) {
+        if (geometry.groups.length > 0 && Array.isArray(meshLike.material) && meshLike.material.length > 1) {
           pushLog("warn", [`Mesh "${object.name || object.type}" has geometry groups with multiple materials; those per-group assignments are not preserved yet.`]);
         }
         const positions = attributeValues(position, 3, "position");
@@ -1298,9 +1298,9 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           normals: normals ? attributeValues(normals, 3, "normal") : undefined,
           uvs: uv ? attributeValues(uv, 2, "uv") : undefined,
         });
-        handle.material = isForgeMaterialSpec(object.material)
-          ? object.material
-          : materialOptions(object.material as THREE.Material | THREE.Material[]);
+        handle.material = isForgeMaterialSpec(meshLike.material)
+          ? meshLike.material
+          : materialOptions(meshLike.material as THREE.Material | THREE.Material[]);
       } else if (
         (object as THREE.Group).isGroup ||
         (object as THREE.Bone).isBone ||
@@ -1312,16 +1312,17 @@ export async function executeUserCode(code: string): Promise<RunResult> {
         const light = object as THREE.PointLight;
         handle = api.light.point({ name: object.name || "Point Light", color: "#" + light.color.getHexString(), intensity: light.intensity, distance: light.distance, decay: light.decay });
       } else if ((object as THREE.SpotLight).isSpotLight) {
+        const light = object as THREE.SpotLight;
         handle = api.light.spot({
           name: object.name || "Spot Light",
-          color: "#" + object.color.getHexString(),
-          intensity: object.intensity,
-          distance: object.distance,
-          decay: object.decay,
-          angle: THREE.MathUtils.radToDeg(object.angle),
-          penumbra: object.penumbra,
-          castShadow: object.castShadow,
-          target: [object.target.position.x, object.target.position.y, object.target.position.z],
+          color: "#" + light.color.getHexString(),
+          intensity: light.intensity,
+          distance: light.distance,
+          decay: light.decay,
+          angle: THREE.MathUtils.radToDeg(light.angle),
+          penumbra: light.penumbra,
+          castShadow: light.castShadow,
+          target: [light.target.position.x, light.target.position.y, light.target.position.z],
         });
       } else if ((object as THREE.DirectionalLight).isDirectionalLight) {
         const light = object as THREE.DirectionalLight;
@@ -1415,7 +1416,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
   try {
     const fn = new Function("mvm", "THREE", "scene", "console", PRELUDE + code) as (
       mvm: typeof api,
-      THREE: typeof THREE,
+      threeRuntime: typeof THREE,
       scene: THREE.Scene,
       console: typeof scriptConsole,
     ) => unknown;
