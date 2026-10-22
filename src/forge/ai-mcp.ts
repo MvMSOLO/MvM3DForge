@@ -1,13 +1,4 @@
-import type { Project, SceneNode } from "@/forge/types.ts";
-
-export interface AIProviderConfig {
-  id: string;
-  name: string;
-  type: "openai" | "anthropic" | "gemini" | "custom";
-  endpoint?: string;
-  apiKey?: string;
-  model: string;
-}
+import type { Project } from "@/forge/types.ts";
 
 export interface MCPConnectionConfig {
   id: string;
@@ -21,13 +12,6 @@ export interface MCPConnectionConfig {
     executeScript: boolean;
   };
 }
-
-export const DEFAULT_AI_PROVIDERS: AIProviderConfig[] = [
-  { id: "openai-default", name: "OpenAI GPT-4o", type: "openai", model: "gpt-4o" },
-  { id: "anthropic-default", name: "Anthropic Claude 3.5 Sonnet", type: "anthropic", model: "claude-3-5-sonnet-20241022" },
-  { id: "gemini-default", name: "Google Gemini 1.5 Pro", type: "gemini", model: "gemini-1.5-pro" },
-  { id: "local-ollama", name: "Local Ollama / OpenAI Compatible", type: "custom", endpoint: "http://localhost:11434/v1", model: "llama3" },
-];
 
 export function buildMCPSceneResource(project: Project): string {
   const summary = {
