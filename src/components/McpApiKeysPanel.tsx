@@ -26,6 +26,7 @@ function when(value: number | null): string {
 }
 
 export function McpApiKeysPanel() {
+  const { user, isPending } = useCurrentUserState();
   const [keys, setKeys] = useState<ApiKeyRecord[]>([]);
   const [name, setName] = useState("My AI client");
   const [scopes, setScopes] = useState<Scope[]>(AVAILABLE_SCOPES.map((scope) => scope.id));
