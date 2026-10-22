@@ -343,7 +343,10 @@ function Studio() {
       setSelected(null);
       setMessage(`${result.project.name} loaded`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load starter.");
+      const detail = error instanceof Error ? error.message : "Could not load starter.";
+      setLogs((current) => [...current, `[ERROR] Starter load: ${detail}`]);
+      setMessage(detail);
+      setTab("console");
     } finally {
       setBusy(false);
     }
@@ -399,6 +402,8 @@ function Studio() {
       setProject(next);
       setCode(next.code);
       setLogs([]);
+      setActiveClipId(next.autoplayClipId ?? next.clips[0]?.id ?? null);
+      setIsPlaying(Boolean(next.autoplayClipId ?? next.clips[0]?.id));
       setMessage(`Opened project · ${next.name}`);
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Could not open this project JSON.";
