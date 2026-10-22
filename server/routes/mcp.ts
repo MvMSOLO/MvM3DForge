@@ -7,11 +7,11 @@ import { createPersistedMcpServer } from "@/forge/remote-mcp-server";
 import { dbSource } from "@/lib/db";
 import { validateMcpRequestAuth } from "@/lib/auth/mcp-auth";
 
-const DEFAULT_ORIGIN = "https://mvm3dforge.vercel.app";
+const DEFAULT_ORIGIN = "https://mvm3d.vercel.app";
 const DEFAULT_HOSTS = [
-  "mvm3dforge.vercel.app",
-  "mvm3dforge-mirzayevavazbek15-3491s-projects.vercel.app",
-  "mvm3dforge-git-main-mirzayevavazbek15-3491s-projects.vercel.app",
+  "mvm3d.vercel.app",
+  "mvm3d-mirzayevavazbek15-3491s-projects.vercel.app",
+  "mvm3d-git-main-mirzayevavazbek15-3491s-projects.vercel.app",
 ];
 
 function configuredList(value: string | undefined, fallback: string[]): string[] {
@@ -43,7 +43,7 @@ function originAllowed(event: H3Event): boolean {
 function hostAllowed(event: H3Event): boolean {
   const host = getRequestHost(event);
   const allowed = configuredList(process.env.MCP_ALLOWED_HOSTS, DEFAULT_HOSTS);
-  const vercelProjectHost = host.startsWith("mvm3dforge-") && host.endsWith("-mirzayevavazbek15-3491s-projects.vercel.app");
+  const vercelProjectHost = host.startsWith("mvm3d-") && host.endsWith("-mirzayevavazbek15-3491s-projects.vercel.app");
   return Boolean(host) && (allowed.includes(host) || vercelProjectHost);
 }
 
@@ -108,7 +108,7 @@ export default defineEventHandler(async (event) => {
       setResponseStatus(event, 503);
       return errorBody(-32000, auth.error || "MCP authentication is temporarily unavailable.");
     }
-    setHeader(event, "WWW-Authenticate", 'Bearer realm="mvm3dforge-mcp", error="invalid_token"');
+    setHeader(event, "WWW-Authenticate", 'Bearer realm="mvm3d-mcp", error="invalid_token"');
     setResponseStatus(event, 401);
     return errorBody(-32001, auth.error || "Authentication required.");
   }
