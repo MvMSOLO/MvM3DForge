@@ -236,6 +236,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
   let projectName: string | undefined;
   let exportRequest: ExportRequest | null = null;
   let autoplayClipId: string | null = null;
+  let sceneMutation: NonNullable<ScriptPatch["sceneMutation"]> = "none";
 
   const pushLog = (level: LogEntry["level"], args: unknown[]) => {
     if (logs.length >= LIMITS.maxLogs) return;
@@ -391,17 +392,20 @@ export async function executeUserCode(code: string): Promise<RunResult> {
   function normalizeMaterial(input: unknown, apiName: string): MaterialSpec {
     const src = record(input, apiName);
     const base = defaultMaterial();
+    const opacity = unit(apiName, "opacity", src.opacity, base.opacity);
+    const explicitlyTransparent = src.transparent === true;
     const mat: MaterialSpec = {
       ...base,
+      name: src.name === undefined ? undefined : clipName(src.name, "Material"),
       color: hexColor(apiName, "color", src.color, base.color),
       roughness: unit(apiName, "roughness", src.roughness, base.roughness),
       metalness: unit(apiName, "metalness", src.metalness, base.metalness),
-      opacity: unit(apiName, "opacity", src.opacity, base.opacity),
+      opacity,
       emissive: hexColor(apiName, "emissive", src.emissive, base.emissive),
       emissiveIntensity: num(apiName, "emissiveIntensity", src.emissiveIntensity, 1, 0, 50),
       alphaMode:
         src.alphaMode === undefined
-          ? src.opacity !== undefined && Number(src.opacity) < 1
+          ? explicitlyTransparent || opacity < 0.999
             ? "BLEND"
             : "OPAQUE"
           : parseAlpha(apiName, src.alphaMode),
@@ -830,6 +834,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           if (!list.length) {
             throw new ForgeError("MVM_E_ARGUMENT_TYPE", "mvm.scene.add expected at least one object.");
           }
+          sceneMutation = "replace";
           for (const item of list) {
             // Bridge compatibility: accept native Three.js Object3D values as well as
             // Forge handles. This lets a group of native meshes be added through either API.
@@ -844,6 +849,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           return list.length === 1 ? list[0] : list;
         },
         remove(target: unknown) {
+          sceneMutation = "replace";
           if (target instanceof THREE.Object3D) {
             threeScene.remove(target);
             return;
@@ -856,6 +862,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           }
         },
         clear() {
+          sceneMutation = "clear";
           for (const item of internals.values()) item.inScene = false;
           threeScene.clear();
         },
@@ -1124,6 +1131,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
         if (node.parentId && !known.has(node.parentId)) node.parentId = null;
       }
       return {
+        sceneMutation,
         objects,
         textures: textures.map((tex) => ({ ...tex, params: tex.params ? { ...tex.params } : undefined })),
         clips: clips.map((clip) => ({
@@ -1153,6 +1161,12 @@ export async function executeUserCode(code: string): Promise<RunResult> {
   // and a real THREE.Scene. After execution, supported Object3D data is converted
   // into Forge's validated project model so viewport/save/GLB export stay consistent.
   const threeScene = new THREE.Scene();
+  const clearNativeScene = threeScene.clear.bind(threeScene);
+  threeScene.clear = () => {
+    sceneMutation = "clear";
+    clearNativeScene();
+    return threeScene;
+  };
   const importedThreeObjects = new Map<THREE.Object3D, any>();
 
   function isForgeMaterialSpec(value: unknown): value is MaterialSpec {
@@ -1199,6 +1213,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       pushLog("warn", [`Shader material "${threeMaterial.name || threeMaterial.type}" cannot be represented in the Forge PBR schema; using a fallback material.`]);
     }
     return {
+      name: threeMaterial.name || undefined,
       color,
       metalness: typeof pbr.metalness === "number" ? pbr.metalness : 0,
       roughness: typeof pbr.roughness === "number" ? pbr.roughness : 0.8,
@@ -1232,6 +1247,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       side: spec.side === "double" ? THREE.DoubleSide : spec.side === "back" ? THREE.BackSide : THREE.FrontSide,
       depthWrite: spec.alphaMode !== "BLEND",
     });
+    material.name = spec.name ?? "";
     if (spec.alphaMode === "MASK") material.alphaTest = spec.alphaCutoff;
     return material;
   }
@@ -1297,8 +1313,11 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     });
     const discoveredMeshes = nodes.filter((object) => Boolean((object as THREE.Mesh).isMesh));
     const existingForgeNodes = [...internals.values()].filter((item) => item.inScene).length;
+    if (nodes.length > 0) sceneMutation = "replace";
     let convertedMeshes = 0;
-    pushLog("log", [`Three.js bridge: discovered ${nodes.length} scene objects and ${discoveredMeshes.length} mesh objects in the native Three.js scene; ${existingForgeNodes} Forge API nodes already exist.`]);
+    if (nodes.length > 0 || existingForgeNodes > 0) {
+      pushLog("log", [`Three.js bridge: discovered ${nodes.length} native scene objects and ${discoveredMeshes.length} native mesh objects; ${existingForgeNodes} Forge API nodes already exist.`]);
+    }
 
     // Create handles before linking parents, so child-before-parent insertion works.
     for (const object of nodes) {
@@ -1457,7 +1476,14 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       api.scene.background("#" + c.getHexString());
     }
     const totalForgeNodes = [...internals.values()].filter((item) => item.inScene).length;
-    pushLog("log", [`Three.js bridge: converted ${convertedMeshes} mesh objects into Forge nodes. Total Forge scene nodes: ${totalForgeNodes}.`]);
+    if (nodes.length > 0 || totalForgeNodes > 0) {
+      pushLog("log", [`Three.js bridge: converted ${convertedMeshes} native mesh objects into Forge nodes. Total Forge scene nodes: ${totalForgeNodes}.`]);
+    } else {
+      pushLog("warn", [
+        "No scene objects were created. Material declarations such as mvm.material.pbr(...) define reusable materials only; they do not create geometry.",
+        "To create a visible model, use a material on a mesh and add the object with mvm.scene.add(...) or scene.add(...). A materials-only run will preserve the previously rendered scene.",
+      ]);
+    }
     if (discoveredMeshes.length > 0 && convertedMeshes === 0) {
       pushLog("error", ["Three.js meshes were found but none could be converted. Check the mesh geometry and the console warnings above."]);
     }
