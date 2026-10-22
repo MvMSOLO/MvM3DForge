@@ -24,6 +24,7 @@ import type {
   Vec3,
 } from "../types.ts";
 import { validateScene } from "../validate.ts";
+import * as THREE from "three";
 
 const PRELUDE = `"use strict";
 const fetch = undefined;
@@ -1109,84 +1110,122 @@ export async function executeUserCode(code: string): Promise<RunResult> {
 
   const { api, snapshot } = createApi();
 
-  // Small Three.js-compatible bridge for common primitive snippets.
-  // Scripts still compile to validated Forge scene nodes rather than arbitrary WebGL objects.
-  const toHexColor = (value: unknown, fallback = "#D4AF37"): string => {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return "#" + Math.max(0, Math.min(0xffffff, Math.round(value))).toString(16).padStart(6, "0");
+  // Real Three.js runtime: scripts receive the actual imported Three.js namespace
+  // and a real THREE.Scene. After execution, supported Object3D data is converted
+  // into Forge's validated project model so viewport/save/GLB export stay consistent.
+  const threeScene = new THREE.Scene();
+  const importedThreeObjects = new Map<THREE.Object3D, any>();
+
+  function materialOptions(material: THREE.Material | THREE.Material[]) {
+    const m = Array.isArray(material) ? material[0] : material;
+    if (!(m instanceof THREE.MeshStandardMaterial) && !(m instanceof THREE.MeshPhysicalMaterial)
+      && !(m instanceof THREE.MeshPhongMaterial) && !(m instanceof THREE.MeshLambertMaterial)
+      && !(m instanceof THREE.MeshBasicMaterial)) {
+      pushLog("warn", [`Material "${m?.type ?? "unknown"}" is not fully representable in the Forge PBR project format; using a best-effort conversion.`]);
     }
-    if (typeof value === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) return value;
-    return fallback;
-  };
-  class CompatTorusGeometry {
-    readonly kind = "torus";
-    constructor(
-      readonly radius = 1,
-      readonly tube = 0.18,
-      readonly radialSegments = 8,
-      readonly tubularSegments = 24,
-    ) {}
+    const pbr = m as THREE.MeshStandardMaterial;
+    const color = pbr.color instanceof THREE.Color ? "#" + pbr.color.getHexString() : "#D4AF37";
+    const emissive = pbr.emissive instanceof THREE.Color ? "#" + pbr.emissive.getHexString() : "#000000";
+    const side = m.side === THREE.DoubleSide ? "double" : m.side === THREE.BackSide ? "back" : "front";
+    return {
+      color,
+      metalness: typeof pbr.metalness === "number" ? pbr.metalness : 0,
+      roughness: typeof pbr.roughness === "number" ? pbr.roughness : 0.8,
+      opacity: typeof pbr.opacity === "number" ? pbr.opacity : 1,
+      emissive,
+      emissiveIntensity: typeof pbr.emissiveIntensity === "number" ? pbr.emissiveIntensity : 0,
+      alphaMode: m.transparent ? "BLEND" : m.alphaTest > 0 ? "MASK" : "OPAQUE",
+      alphaCutoff: typeof m.alphaTest === "number" ? m.alphaTest : 0.5,
+      side,
+    };
   }
-  class CompatMeshStandardMaterial {
-    color: string;
-    metalness: number;
-    roughness: number;
-    constructor(options: Record<string, unknown> = {}) {
-      this.color = toHexColor(options.color);
-      this.metalness = typeof options.metalness === "number" ? Math.max(0, Math.min(1, options.metalness)) : 0;
-      this.roughness = typeof options.roughness === "number" ? Math.max(0, Math.min(1, options.roughness)) : 1;
-    }
-  }
-  class CompatMesh {
-    name = "Mesh";
-    position = { x: 0, y: 0, z: 0, set(x: number, y: number, z: number) { this.x = x; this.y = y; this.z = z; return this; } };
-    rotation = { x: 0, y: 0, z: 0, set(x: number, y: number, z: number) { this.x = x; this.y = y; this.z = z; return this; } };
-    scale = { x: 1, y: 1, z: 1, set(x: number, y: number, z: number) { this.x = x; this.y = y; this.z = z; return this; } };
-    constructor(readonly geometry: unknown, readonly material: unknown) {}
-  }
-  const threeCompat = {
-    TorusGeometry: CompatTorusGeometry,
-    MeshStandardMaterial: CompatMeshStandardMaterial,
-    Mesh: CompatMesh,
-  };
-  const sceneCompat = {
-    add(...items: unknown[]) {
-      for (const item of items) {
-        if (!(item instanceof CompatMesh)) {
-          throw new Error("MVM THREE bridge currently supports THREE.Mesh with THREE.TorusGeometry and THREE.MeshStandardMaterial. Use mvm.geometry for other shapes.");
+
+  function convertThreeScene() {
+    const nodes: THREE.Object3D[] = [];
+    threeScene.traverse((object) => {
+      if (object !== threeScene && (object instanceof THREE.Mesh || object instanceof THREE.Group
+        || object instanceof THREE.PointLight || object instanceof THREE.DirectionalLight
+        || object instanceof THREE.SpotLight || object instanceof THREE.AmbientLight
+        || object instanceof THREE.HemisphereLight)) nodes.push(object);
+    });
+
+    // Create handles before linking parents, so child-before-parent insertion works.
+    for (const object of nodes) {
+      if (importedThreeObjects.has(object)) continue;
+      let handle: any;
+      if (object instanceof THREE.Mesh && object.geometry instanceof THREE.BufferGeometry) {
+        const geometry = object.geometry;
+        const position = geometry.getAttribute("position");
+        if (!position || position.count < 3) {
+          pushLog("warn", [`Skipped mesh "${object.name || object.type}": geometry has no valid position attribute.`]);
+          continue;
         }
-        if (!(item.geometry instanceof CompatTorusGeometry) || !(item.material instanceof CompatMeshStandardMaterial)) {
-          throw new Error("Supported test pattern: new THREE.Mesh(new THREE.TorusGeometry(...), new THREE.MeshStandardMaterial(...)).");
+        if (position.count > LIMITS.maxVerticesPerMesh) {
+          throw new ForgeError("MVM_E_GEOMETRY_CUSTOM_INVALID", `Mesh "${object.name || object.type}" exceeds the ${LIMITS.maxVerticesPerMesh} vertex limit.`);
         }
-        const geometry = item.geometry;
-        const material = item.material;
-        const ring = api.geometry.torus({
-          name: item.name || "Torus",
-          radius: geometry.radius,
-          tube: geometry.tube,
-          radialSegments: geometry.radialSegments,
-          tubularSegments: geometry.tubularSegments,
+        const positions = Array.from(position.array as ArrayLike<number>);
+        const index = geometry.getIndex();
+        const normals = geometry.getAttribute("normal");
+        const uv = geometry.getAttribute("uv");
+        handle = api.geometry.custom({
+          name: object.name || object.type,
+          positions,
+          indices: index ? Array.from(index.array as ArrayLike<number>) : undefined,
+          normals: normals ? Array.from(normals.array as ArrayLike<number>) : undefined,
+          uvs: uv ? Array.from(uv.array as ArrayLike<number>) : undefined,
         });
-        ring.material = { color: material.color, metalness: material.metalness, roughness: material.roughness };
-        ring.position.set(item.position.x, item.position.y, item.position.z);
-        ring.rotation.set(item.rotation.x * 180 / Math.PI, item.rotation.y * 180 / Math.PI, item.rotation.z * 180 / Math.PI);
-        ring.scale.set(item.scale.x, item.scale.y, item.scale.z);
-        api.scene.add(ring);
+        handle.material = materialOptions(object.material as THREE.Material | THREE.Material[]);
+      } else if (object instanceof THREE.Group) {
+        handle = api.scene.group({ name: object.name || "Group" });
+      } else if (object instanceof THREE.PointLight) {
+        handle = api.light.point({ name: object.name || "Point Light", color: "#" + object.color.getHexString(), intensity: object.intensity, distance: object.distance, decay: object.decay });
+      } else if (object instanceof THREE.SpotLight) {
+        handle = api.light.spot({ name: object.name || "Spot Light", color: "#" + object.color.getHexString(), intensity: object.intensity, distance: object.distance, decay: object.decay, angle: THREE.MathUtils.radToDeg(object.angle), penumbra: object.penumbra, castShadow: object.castShadow });
+      } else if (object instanceof THREE.DirectionalLight) {
+        handle = api.light.directional({ name: object.name || "Directional Light", color: "#" + object.color.getHexString(), intensity: object.intensity, castShadow: object.castShadow });
+      } else if (object instanceof THREE.HemisphereLight) {
+        handle = api.light.hemisphere({ name: object.name || "Hemisphere Light", color: "#" + object.color.getHexString(), groundColor: "#" + object.groundColor.getHexString(), intensity: object.intensity });
+      } else if (object instanceof THREE.AmbientLight) {
+        handle = api.light.ambient({ name: object.name || "Ambient Light", color: "#" + object.color.getHexString(), intensity: object.intensity });
       }
-    },
-  };
+      if (!handle) continue;
+      handle.position.set(object.position.x, object.position.y, object.position.z);
+      handle.rotation.set(
+        THREE.MathUtils.radToDeg(object.rotation.x),
+        THREE.MathUtils.radToDeg(object.rotation.y),
+        THREE.MathUtils.radToDeg(object.rotation.z),
+      );
+      handle.scale.set(object.scale.x, object.scale.y, object.scale.z);
+      handle.visible = object.visible;
+      importedThreeObjects.set(object, handle);
+    }
+
+    for (const object of nodes) {
+      const handle = importedThreeObjects.get(object);
+      if (!handle) continue;
+      const parent = object.parent && object.parent !== threeScene ? importedThreeObjects.get(object.parent) : undefined;
+      if (parent) handle.parent = parent;
+      else api.scene.add(handle);
+    }
+
+    if (threeScene.background instanceof THREE.Color) {
+      const c = threeScene.background;
+      api.scene.background("#" + c.getHexString());
+    }
+  }
 
   try {
     const fn = new Function("mvm", "THREE", "scene", PRELUDE + code) as (
       mvm: typeof api,
-      THREE: typeof threeCompat,
-      scene: typeof sceneCompat,
+      THREE: typeof THREE,
+      scene: THREE.Scene,
     ) => unknown;
-    const returned = fn(api, threeCompat, sceneCompat);
+    const returned = fn(api, THREE, threeScene);
     if (returned && typeof (returned as Promise<unknown>).then === "function") {
       await returned;
     }
     for (const paint of paints) await paint();
+    convertThreeScene();
     const patch = snapshot();
     patch.issues = validateScene(patch).filter((item) => item.code !== "MVM_E_EXPORT_EMPTY" || patch.objects.some((o) => o.type === "mesh"));
     const hard = patch.issues.find((item) => item.severity === "error");
