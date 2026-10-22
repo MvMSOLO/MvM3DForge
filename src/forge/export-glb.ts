@@ -65,6 +65,8 @@ function ensureFileReader() {
   }
   Object.defineProperty(globalThis, "FileReader", { value: FileReaderPolyfill, configurable: true });
 }
+
+export async function exportProjectGlb(
   project: Project,
   options: ExportOptions,
 ): Promise<{ buffer: ArrayBuffer; summary: ExportSummary; issues: ForgeIssue[] }> {
