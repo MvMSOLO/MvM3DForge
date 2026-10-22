@@ -2,16 +2,19 @@ import type { H3Event } from "h3";
 import { getHeader } from "h3";
 import { getSessionUser, DEV_USER_ID, authConfigured } from "./verify.server";
 import { allowMcpDevelopmentFallback, ownsMcpProject } from "./mcp-auth-policy";
+import { authenticateMcpApiKey } from "@/lib/mcp/api-keys.server";
 
 export interface McpAuthResult {
   authenticated: boolean;
   userId: string;
   scopes: string[];
+  apiKeyId?: string;
+  unavailable?: boolean;
   error?: string;
 }
 
-function unauthenticated(error: string): McpAuthResult {
-  return { authenticated: false, userId: "", scopes: [], error };
+function unauthenticated(error: string, unavailable = false): McpAuthResult {
+  return { authenticated: false, userId: "", scopes: [], error, unavailable };
 }
 
 export async function validateMcpRequestAuth(event: H3Event): Promise<McpAuthResult> {
@@ -22,15 +25,31 @@ export async function validateMcpRequestAuth(event: H3Event): Promise<McpAuthRes
 
   let token: string | undefined;
   if (authHeader) {
-    if (authHeader.startsWith("Bearer ")) {
-      token = authHeader.substring(7).trim();
-    } else {
-      token = authHeader.trim();
-    }
+    token = authHeader.startsWith("Bearer ")
+      ? authHeader.substring(7).trim()
+      : authHeader.trim();
   }
 
-  // Never silently downgrade a malformed, expired, or invalid supplied token
-  // into the shared development identity.
+  // API keys are stored as hashes and are scoped to a specific user.
+  if (token?.startsWith("mvmf_live_")) {
+    try {
+      const apiKey = await authenticateMcpApiKey(token);
+      if (apiKey) {
+        return {
+          authenticated: true,
+          userId: apiKey.userId,
+          scopes: apiKey.scopes,
+          apiKeyId: apiKey.keyId,
+        };
+      }
+    } catch {
+      // Database failures must not become an authentication bypass.
+      return unauthenticated("API key verification is temporarily unavailable.", true);
+    }
+    return unauthenticated("Invalid, expired, or revoked API key.");
+  }
+
+  // A Better Auth bearer session can also be used by trusted integrations.
   if (token) {
     try {
       const user = await getSessionUser(token);
@@ -44,11 +63,11 @@ export async function validateMcpRequestAuth(event: H3Event): Promise<McpAuthRes
     } catch {
       // Treat verification errors as failed authentication.
     }
-    return unauthenticated("Invalid or expired Bearer token or API key.");
+    return unauthenticated("Invalid or expired Bearer token.");
   }
 
-  // A shared dev identity is permitted only on a local, non-production
-  // development server with auth intentionally disabled.
+  // A shared development identity is only permitted on local, non-production
+  // servers with auth intentionally disabled.
   if (
     allowMcpDevelopmentFallback({
       hasToken: false,
@@ -64,11 +83,10 @@ export async function validateMcpRequestAuth(event: H3Event): Promise<McpAuthRes
     };
   }
 
-  return unauthenticated("Authentication required. Provide a valid session Bearer token or API key.");
+  return unauthenticated("Authentication required. Provide an MvM 3D Forge API key.");
 }
 
 export function verifyProjectOwnership(userId: string, projectOwnerId?: string): boolean {
-  // Keep local demo scenes usable, but never apply this exemption in production.
   if (process.env.NODE_ENV !== "production" && userId === DEV_USER_ID) {
     return true;
   }

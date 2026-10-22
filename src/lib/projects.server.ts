@@ -1,5 +1,5 @@
-import { getSql } from "@/lib/db";
-import type { Project, SceneNode, AnimClip, TextureAsset, SceneSettings } from "@/forge/types";
+import { getSql } from "./db.ts";
+import type { Project, SceneNode, AnimClip, TextureAsset, SceneSettings } from "../forge/types.ts";
 
 export interface DBProjectRow {
   id: string;
@@ -27,7 +27,7 @@ export async function saveProjectToDb(userId: string, project: Project): Promise
   const clipsJson = JSON.stringify(updatedProject.clips);
   const texturesJson = JSON.stringify(updatedProject.textures);
 
-  await sql`
+  const persisted = await sql<{ id: string; user_id: string }>`
     INSERT INTO projects (
       id, user_id, name, schema_version, api_version, app_version,
       code, scene_json, objects_json, clips_json, textures_json, created_at, updated_at
@@ -45,7 +45,12 @@ export async function saveProjectToDb(userId: string, project: Project): Promise
       clips_json = EXCLUDED.clips_json,
       textures_json = EXCLUDED.textures_json,
       updated_at = EXCLUDED.updated_at
+    WHERE projects.user_id = EXCLUDED.user_id
+    RETURNING id, user_id
   `;
+  if (persisted.length === 0 || persisted[0].user_id !== userId) {
+    throw new Error("Project ownership conflict: this project id is not writable by the current user.");
+  }
 
   return updatedProject;
 }
@@ -103,8 +108,10 @@ export async function listUserProjectsFromDb(userId: string): Promise<Array<{ id
 
 export async function deleteProjectFromDb(userId: string, projectId: string): Promise<boolean> {
   const sql = await getSql();
-  await sql`
-    DELETE FROM projects WHERE id = ${projectId} AND user_id = ${userId}
+  const deleted = await sql<{ id: string }>`
+    DELETE FROM projects
+     WHERE id = ${projectId} AND user_id = ${userId}
+    RETURNING id
   `;
-  return true;
+  return deleted.length > 0;
 }
