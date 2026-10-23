@@ -69,7 +69,7 @@ function readAttribute(attribute: THREE.BufferAttribute | THREE.InterleavedBuffe
   return out;
 }
 
-function customGeometry(geometry: THREE.BufferGeometry, group?: THREE.Group | THREE.GeometryGroup): GeometrySpec | null {
+function customGeometry(geometry: THREE.BufferGeometry, group?: { start: number; count: number }): GeometrySpec | null {
   const position = geometry.getAttribute("position");
   if (!position || position.count < 3) return null;
   const positions = readAttribute(position, 3);
@@ -106,7 +106,7 @@ function imageDimensions(image: unknown): { width: number; height: number } | nu
   return width > 0 && height > 0 ? { width, height } : null;
 }
 
-async function textureDataUrl(texture: THREE.Texture, colorSpace: "srgb" | "linear"): Promise<{ dataUrl: string; width: number; height: number } | null> {
+async function textureDataUrl(texture: THREE.Texture): Promise<{ dataUrl: string; width: number; height: number } | null> {
   const image = texture.image;
   const dimensions = imageDimensions(image);
   if (!dimensions || typeof document === "undefined") return null;
@@ -153,7 +153,6 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
   const nodes: SceneNode[] = [];
   const textures: TextureAsset[] = [];
   const textureCache = new Map<string, string>();
-  const objectNodeIds = new Map<THREE.Object3D, string>();
   const nameCounts = new Map<string, number>();
   const nodeByName = new Map<string, string>();
   const ambiguousNames = new Set<string>();
@@ -175,7 +174,7 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
       warnings.add("Some material maps were omitted because the project texture limit is 32.");
       return null;
     }
-    const pixels = await textureDataUrl(texture, colorSpace);
+    const pixels = await textureDataUrl(texture);
     if (!pixels) {
       warnings.add("Some embedded texture images could not be converted and were skipped.");
       return null;
@@ -297,7 +296,6 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
         });
         nodeId = addNode(groupNode);
         childParentId = nodeId;
-        objectNodeIds.set(object, nodeId);
         if (object.name && !ambiguousNames.has(object.name)) nodeByName.set(object.name, nodeId);
         for (const group of groups) {
           const material = matArray[group.materialIndex] ?? matArray[0];
@@ -337,8 +335,7 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
         });
         nodeId = addNode(node);
         childParentId = nodeId;
-        objectNodeIds.set(object, nodeId);
-        if (object.name && !ambiguousNames.has(object.name)) nodeByName.set(object.name, nodeId);
+          if (object.name && !ambiguousNames.has(object.name)) nodeByName.set(object.name, nodeId);
       }
     } else {
       const node = makeNode({
@@ -352,7 +349,6 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
       });
       nodeId = addNode(node);
       childParentId = nodeId;
-      objectNodeIds.set(object, nodeId);
       if (object.name && !ambiguousNames.has(object.name)) nodeByName.set(object.name, nodeId);
     }
 
@@ -416,11 +412,9 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
     throw new Error("No editable mesh was found in this GLB.");
   }
 
-  const importedIds = new Set(nodes.map((node) => node.id));
   const mergedObjects = [...current.objects, ...nodes];
   const mergedTextures = [...current.textures, ...textures];
   const mergedClips = [...current.clips, ...clips];
-  const importedRoot = nodes.find((node) => node.type === "group" && node.parentId === null);
   return {
     project: {
       ...current,
