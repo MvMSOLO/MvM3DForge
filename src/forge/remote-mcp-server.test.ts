@@ -218,15 +218,19 @@ describe("Remote MCP server end-to-end tool registry", () => {
     } finally { await session.close(); }
 
     const limitedRepo = new MemoryProjectRepository();
+    const limitedProject = projectShell("Read and Execute Only", "");
+    limitedProject.author = "limited-user";
+    limitedRepo.projects.set(limitedProject.id, limitedProject);
     const limitedQueue = new MemoryExecutionQueue();
     const limited = await connectClient("limited-user", ["project:read", "scene:execute"], limitedRepo, limitedQueue);
     try {
-      const created = textPayload(await limited.client.callTool({ name: "create_project", arguments: { name: "Read and Execute Only", starterId: "blank" } }));
       const result = await limited.client.callTool({
         name: "run_script",
-        arguments: { projectId: created.projectId, mode: "apply", code: 'mvm.geometry.box({ name: "Denied Apply" });' },
+        arguments: { projectId: limitedProject.id, mode: "apply", code: 'mvm.geometry.box({ name: "Denied Apply" });' },
       });
       assert.equal(result.isError, true, "apply mode must require scene:write");
+      const queued = [...limitedQueue.jobs.values()];
+      assert.equal(queued.length, 0, "unauthorized apply must not enqueue a job");
     } finally { await limited.close(); }
   });
 
