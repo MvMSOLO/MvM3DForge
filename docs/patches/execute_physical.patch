@@ -1,0 +1,27 @@
+--- a/src/forge/sdk/execute.ts
++++ b/src/forge/sdk/execute.ts
+@@ -416,12 +416,24 @@
+       aoMapId: readTexture(src.aoMap ?? src.aoMapId, apiName),
+       roughnessMapId: readTexture(src.roughnessMap ?? src.roughnessMapId, apiName),
+       metalnessMapId: readTexture(src.metalnessMap ?? src.metalnessMapId, apiName),
++      emissiveMapId: readTexture(src.emissiveMap ?? src.emissiveMapId, apiName),
++      clearcoat: unit(apiName, "clearcoat", src.clearcoat, base.clearcoat ?? 0),
++      clearcoatRoughness: unit(apiName, "clearcoatRoughness", src.clearcoatRoughness, base.clearcoatRoughness ?? 0),
++      transmission: unit(apiName, "transmission", src.transmission, base.transmission ?? 0),
++      ior: num(apiName, "ior", src.ior, base.ior ?? 1.5, 1, 2.5),
++      thickness: num(apiName, "thickness", src.thickness, base.thickness ?? 0, 0, LIMITS.maxDimension),
++      sheen: unit(apiName, "sheen", src.sheen, base.sheen ?? 0),
++      sheenRoughness: unit(apiName, "sheenRoughness", src.sheenRoughness, base.sheenRoughness ?? 0.5),
++      sheenColor: hexColor(apiName, "sheenColor", src.sheenColor, base.sheenColor ?? "#ffffff"),
++      normalScale: num(apiName, "normalScale", src.normalScale, base.normalScale ?? 1, 0, 4),
+       repeat: pair(src.repeat, [1, 1], apiName, "repeat"),
+       offset: pair(src.offset, [0, 0], apiName, "offset"),
+       rotation: num(apiName, "rotation", src.rotation, 0, -3600, 3600),
+       wrap: src.wrap === "clamp" ? "clamp" : src.wrap === undefined ? "repeat" : parseWrap(apiName, src.wrap),
+     };
+-    if (mat.alphaMode === "OPAQUE") mat.opacity = mat.opacity === 1 ? 1 : mat.opacity;
++    if (mat.alphaMode === "OPAQUE" && (mat.transmission ?? 0) < 0.001) {
++      mat.opacity = mat.opacity === 1 ? 1 : mat.opacity;
++    }
+     return mat;
+   }
