@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { defaultMaterial } from "./materials.ts";
 import { makeNode } from "./nodes.ts";
 import { LIMITS } from "./limits.ts";
-import type { AnimClip, GeometrySpec, MaterialSpec, Project, SceneNode, TextureAsset } from "./types.ts";
+import type { AnimClip, AnimTrack, GeometrySpec, MaterialSpec, Project, SceneNode, TextureAsset } from "./types.ts";
 
 export type GlbImportResult = {
   project: Project;
@@ -298,12 +298,13 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
         childParentId = nodeId;
         if (object.name && !ambiguousNames.has(object.name)) nodeByName.set(object.name, nodeId);
         for (const group of groups) {
-          const material = matArray[group.materialIndex] ?? matArray[0];
+          const materialIndex = group.materialIndex ?? 0;
+          const material = matArray[materialIndex] ?? matArray[0];
           const geometry = customGeometry(mesh.geometry, group);
           if (!geometry) continue;
           const surface = await materialSpec(material, object.name || "Imported Surface");
           const child = makeNode({
-            name: (object.name || "Imported Mesh") + " · surface " + (group.materialIndex + 1),
+            name: (object.name || "Imported Mesh") + " · surface " + (materialIndex + 1),
             type: "mesh",
             source: "import",
             parentId: nodeId,
@@ -362,7 +363,7 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
   const clips: AnimClip[] = [];
   let droppedAnimationTracks = 0;
   for (const animation of gltf.animations) {
-    const tracks = [];
+    const tracks: AnimTrack[] = [];
     for (const track of animation.tracks) {
       const match = track.name.match(/^(.*)\.(position|rotation|quaternion|scale)$/);
       if (!match || match[1].includes(".bones[") || ambiguousNames.has(match[1])) {
@@ -381,7 +382,8 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
         droppedAnimationTracks += 1;
         continue;
       }
-      const property = propertyName === "quaternion" ? "quaternion" : propertyName as "position" | "rotation" | "scale";
+      const property: AnimTrack["property"] =
+        propertyName === "quaternion" ? "quaternion" : propertyName as AnimTrack["property"];
       const keyframes = Array.from(track.times).map((time, index) => ({
         time,
         value: Array.from(track.values.slice(index * valueSize, (index + 1) * valueSize)),
