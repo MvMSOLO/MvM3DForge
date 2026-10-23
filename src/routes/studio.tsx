@@ -27,7 +27,8 @@ import {
   Undo2,
   Redo2,
 } from "lucide-react";
-import { migrateProject, packageProject } from "@/forge/project.ts";
+import { applyScriptPatch, migrateProject, packageProject } from "@/forge/project.ts";
+import { executeUserCode } from "@/forge/sdk/execute.ts";
 import { starters } from "@/forge/examples.ts";
 import { animationClips, assembleScene } from "@/forge/scene-three.ts";
 import { useStudioStore, useHistoryStore } from "@/forge/store";
@@ -146,6 +147,10 @@ function Studio() {
   const actionsRef = useRef<Map<string, THREE.AnimationAction>>(new Map());
   const syncedClipRef = useRef<string | null>(null);
   const syncPlaybackRef = useRef<() => void>(() => {});
+  const renderedProjectKeyRef = useRef<string | null>(null);
+  const renderWaitersRef = useRef<Map<string, () => void>>(new Map());
+  const pendingCanvasCaptureRef = useRef<((canvas: HTMLCanvasElement) => void) | null>(null);
+  const bridgeBusyRef = useRef(false);
 
   useEffect(() => {
     void loadStarter("primitives");
@@ -261,9 +266,185 @@ function Studio() {
     setLogs([]);
   }
 
+  function waitForViewportRender(projectKey: string, timeoutMs = 10000): Promise<boolean> {
+    if (renderedProjectKeyRef.current === projectKey) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let timer = 0;
+      const done = () => {
+        window.clearTimeout(timer);
+        if (renderWaitersRef.current.get(projectKey) === done) renderWaitersRef.current.delete(projectKey);
+        resolve(true);
+      };
+      timer = window.setTimeout(() => {
+        if (renderWaitersRef.current.get(projectKey) === done) renderWaitersRef.current.delete(projectKey);
+        resolve(false);
+      }, timeoutMs);
+      renderWaitersRef.current.set(projectKey, done);
+    });
+  }
+
+  function captureViewportImage(timeoutMs = 6000): Promise<string | null> {
+    return new Promise((resolve) => {
+      let timer = 0;
+      const finish = (value: string | null) => {
+        window.clearTimeout(timer);
+        if (pendingCanvasCaptureRef.current === capture) pendingCanvasCaptureRef.current = null;
+        resolve(value);
+      };
+      const capture = (source: HTMLCanvasElement) => {
+        try {
+          if (!source.width || !source.height) return finish(null);
+          const scale = Math.min(1, 1280 / source.width, 720 / source.height);
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(source.width * scale));
+          canvas.height = Math.max(1, Math.round(source.height * scale));
+          const context = canvas.getContext("2d");
+          if (!context) return finish(null);
+          context.drawImage(source, 0, 0, canvas.width, canvas.height);
+          finish(canvas.toDataURL("image/jpeg", 0.76));
+        } catch {
+          finish(null);
+        }
+      };
+      timer = window.setTimeout(() => finish(null), timeoutMs);
+      pendingCanvasCaptureRef.current = capture;
+    });
+  }
+
+  useEffect(() => {
+    const projectId = project?.id;
+    const projectAuthor = project?.author;
+    // A local starter has no account owner and cannot be addressed by remote MCP.
+    // Only poll when a saved, owned cloud project is open.
+    if (!projectId || !projectAuthor) return;
+    let stopped = false;
+    let polling = false;
+    let timer = 0;
+
+    const postAction = async (body: Record<string, unknown>) => {
+      const response = await fetch("/api/mcp-jobs", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({})) as Record<string, unknown>;
+      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : `AI job request failed (HTTP ${response.status}).`);
+      return data;
+    };
+
+    const pollOnce = async () => {
+      if (stopped || polling || bridgeBusyRef.current || useStudioStore.getState().running) return;
+      polling = true;
+      try {
+        const activeProject = useStudioStore.getState().project;
+        if (!activeProject || activeProject.id !== projectId || activeProject.author !== projectAuthor) return;
+        const response = await fetch(`/api/mcp-jobs?projectId=${encodeURIComponent(projectId)}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (response.status === 204) return;
+        if (response.status === 404) return; // A stale/local project is not an AI queue target.
+        if (!response.ok) {
+          if (response.status === 401) return;
+          throw new Error(`AI queue poll failed (HTTP ${response.status}).`);
+        }
+        const payload = await response.json().catch(() => ({})) as { job?: {
+          id: string; projectId: string; kind: "script" | "render"; code: string;
+          applyChanges: boolean; baseUpdatedAt: number;
+        } };
+        const job = payload.job;
+        if (!job || job.projectId !== projectId) return;
+        bridgeBusyRef.current = true;
+        const original = useStudioStore.getState().project;
+        if (!original || original.id !== job.projectId || original.author !== projectAuthor || original.updatedAt !== job.baseUpdatedAt) {
+          await postAction({ action: "fail", jobId: job.id, error: "The open Studio project does not match the saved revision targeted by this AI job. Reload it and try again." });
+          return;
+        }
+
+        setMessage(job.kind === "render" ? "AI render requested · capturing the real viewport…" : job.applyChanges ? "AI script requested · testing before applying…" : "AI preview requested · running in the browser sandbox…");
+        const baseKey = `${original.id}:${original.updatedAt}`;
+        let runResult: Awaited<ReturnType<typeof executeUserCode>> | null = null;
+        let responseData: Record<string, unknown>;
+
+        if (job.kind === "render") {
+          responseData = await postAction({ action: "execution-result", jobId: job.id });
+        } else {
+          setCode(job.code);
+          runResult = await executeUserCode(job.code);
+          responseData = await postAction({ action: "execution-result", jobId: job.id, runResult });
+        }
+
+        let previewProject: Project | null = null;
+        const summary = responseData.summary && typeof responseData.summary === "object"
+          ? responseData.summary as Record<string, unknown>
+          : null;
+        const responseOkay = responseData.ok === true;
+        const previewCandidate = responseData.previewCandidate === true;
+        const applied = responseData.applied === true;
+        if (job.kind === "script" && runResult?.ok && responseOkay && (applied || !job.applyChanges || previewCandidate)) {
+          const built = applyScriptPatch(original, runResult.patch);
+          const revision = typeof responseData.projectUpdatedAt === "number"
+            ? responseData.projectUpdatedAt
+            : Math.max(Date.now(), original.updatedAt + 1);
+          previewProject = { ...built, code: job.code, author: original.author, updatedAt: revision };
+          setProject(previewProject);
+        }
+
+        const formattedLogs = runResult?.logs.map((entry) =>
+          entry.level === "error" ? `[ERROR] ${entry.message}` : entry.level === "warn" ? `[WARN] ${entry.message}` : entry.message
+        ) ?? [];
+        const responseIssues = Array.isArray(summary?.issues) ? summary?.issues as Array<Record<string, unknown>> : [];
+        const scriptIssues = runResult?.ok ? runResult.patch.issues : runResult?.issues ?? [];
+        const issueLines = [...scriptIssues, ...responseIssues]
+          .filter((entry) => entry && typeof entry.message === "string")
+          .map((entry) => `[${typeof entry.code === "string" ? entry.code : "MVM_E_ISSUE"}] ${String(entry.message)}`);
+        if (job.kind === "script") {
+          const error = runResult && !runResult.ok ? runResult.error.message : summary && summary.ok === false ? String((summary.error as { message?: string } | undefined)?.message ?? "Server validation rejected this scene.") : "";
+          const logs = [...formattedLogs, ...issueLines, ...(error ? [`[ERROR] ${error}`] : [])];
+          setLogs(logs.length ? logs : ["AI script completed without console output."]);
+          setActiveTab("console");
+          setMessage(error ? "AI script finished with errors · inspect Console" : applied ? "AI changes applied after browser validation" : "AI preview rendered · saved project remains unchanged");
+        } else {
+          setLogs(["AI render requested for the current Three.js viewport."]);
+          setActiveTab("console");
+        }
+
+        const renderProject = useStudioStore.getState().project;
+        const renderKey = renderProject ? `${renderProject.id}:${renderProject.updatedAt}` : baseKey;
+        const ready = await waitForViewportRender(renderKey);
+        const screenshotDataUrl = ready ? await captureViewportImage() : null;
+        const renderError = ready ? (screenshotDataUrl ? null : "Viewport canvas did not produce a readable screenshot.") : "Viewport did not finish rendering before the screenshot timeout.";
+        await postAction({ action: "capture", jobId: job.id, screenshotDataUrl, renderError });
+
+        if (previewProject && !applied) {
+          setProject(original);
+          await waitForViewportRender(baseKey, 10000);
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Studio AI bridge failed.";
+        setLogs([`[ERROR] AI bridge: ${detail}`]);
+        setMessage(detail);
+        setActiveTab("console");
+      } finally {
+        bridgeBusyRef.current = false;
+        polling = false;
+      }
+    };
+
+    timer = window.setInterval(() => { void pollOnce(); }, 1200);
+    void pollOnce();
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [project?.id, project?.author]);
+
   useEffect(() => {
     const host = viewportRef.current;
     if (!host || !project) return;
+    const viewportProjectKey = `${project.id}:${project.updatedAt}`;
+    renderedProjectKeyRef.current = null;
     let disposed = false;
     let frame = 0;
     let controls: OrbitControls | undefined;
@@ -415,6 +596,16 @@ function Studio() {
         controls.update();
         if (mixer && clock) mixer.update(clock.getDelta());
         renderer.render(renderScene, camera);
+        renderedProjectKeyRef.current = viewportProjectKey;
+        const ready = renderWaitersRef.current.get(viewportProjectKey);
+        if (ready) ready();
+        // Read the WebGL canvas immediately after this render; no server-side rendering
+        // and no preserveDrawingBuffer overhead for every frame.
+        const capture = pendingCanvasCaptureRef.current;
+        if (capture) {
+          pendingCanvasCaptureRef.current = null;
+          capture(renderer.domElement);
+        }
         frame = requestAnimationFrame(tick);
       };
       tick();
