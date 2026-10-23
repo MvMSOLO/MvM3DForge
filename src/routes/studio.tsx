@@ -445,7 +445,7 @@ function Studio() {
   const meshes = project?.objects.filter((node) => node.type === "mesh") ?? [];
 
   return (
-    <main className="forge-shell flex min-h-screen flex-col bg-[#080d12] text-[#e8f0f6]">
+    <main className="forge-shell flex min-h-screen flex-col bg-[#080d12] text-[#e8f0f6] lg:h-dvh lg:min-h-0 lg:overflow-hidden">
       <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} />
 
       <header className="forge-topbar flex min-h-[64px] flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-[#0d141c]/90 px-4 py-3 sm:px-6">
@@ -537,8 +537,8 @@ function Studio() {
         </div>
       </header>
 
-      <div className="forge-workspace grid flex-1 grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_minmax(320px,38%)]">
-        <aside className="border-b border-white/10 bg-[#0c1219] p-4 lg:border-b-0 lg:border-r">
+      <div className="forge-workspace grid min-h-0 flex-1 grid-cols-1 lg:grid-rows-[minmax(0,1fr)] lg:grid-cols-[220px_minmax(0,1fr)_minmax(320px,38%)] lg:overflow-hidden">
+        <aside className="min-h-0 border-b border-white/10 bg-[#0c1219] p-4 lg:overflow-auto lg:border-b-0 lg:border-r">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-[.18em] text-slate-500">
               Starters
@@ -581,7 +581,7 @@ function Studio() {
           </div>
         </aside>
 
-        <section className="forge-viewport-panel flex min-h-[52vh] flex-col border-b border-white/10 lg:min-h-0 lg:border-b-0 lg:border-r">
+        <section className="forge-viewport-panel flex min-h-[52vh] flex-col border-b border-white/10 lg:min-h-0 lg:overflow-hidden lg:border-b-0 lg:border-r">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#0d141c] px-4 py-3">
             <div>
               <div className="text-xs font-semibold">3D Viewport</div>
@@ -606,7 +606,7 @@ function Studio() {
             </div>
           </div>
 
-          <div className="relative min-h-[42vh] flex-1 bg-[#10161e]" ref={viewportRef}>
+          <div className="relative min-h-[42vh] flex-1 bg-[#10161e] lg:min-h-0" ref={viewportRef}>
             {!project && (
               <div className="absolute inset-0 grid place-items-center text-sm text-slate-500">
                 {busy ? "Starting renderer…" : "Load a starter scene to begin."}
@@ -676,7 +676,7 @@ function Studio() {
           </div>
         </section>
 
-        <section className="forge-workbench flex min-h-[520px] flex-col bg-[#0b1118] lg:min-h-0">
+        <section className="forge-workbench flex min-h-[520px] min-w-0 flex-col bg-[#0b1118] lg:min-h-0 lg:overflow-hidden">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div className="text-xs font-semibold">Workspace</div>
             <div className="flex gap-1">
@@ -697,7 +697,7 @@ function Studio() {
           </div>
 
           {activeTab === "code" && (
-            <>
+            <div className="forge-code-panel flex min-h-[460px] min-w-0 flex-1 flex-col overflow-hidden lg:min-h-0">
               <div className="flex items-center justify-between px-4 py-3">
                 <div>
                   <div className="text-xs font-semibold">main.mvm.js</div>
@@ -718,7 +718,7 @@ function Studio() {
                 onChange={(event) => setCode(event.target.value)}
                 spellCheck={false}
                 aria-label="MVM SDK JavaScript editor"
-                className="min-h-[350px] flex-1 resize-y border-y border-white/[.08] bg-[#080d12] p-4 font-mono text-[12px] leading-6 text-[#d4e0e8] outline-none focus:border-[#83f0ce]/30"
+                className="min-h-0 w-full flex-1 resize-none overflow-auto overscroll-contain border-y border-white/[.08] bg-[#080d12] p-4 font-mono text-[12px] leading-6 text-[#d4e0e8] outline-none focus:border-[#83f0ce]/30"
                 placeholder="// Write MVM SDK code here…"
               />
               <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-[10px] leading-5 text-slate-500">
@@ -730,7 +730,7 @@ function Studio() {
                   <Copy size={12} /> Copy AI context
                 </button>
               </div>
-            </>
+            </div>
           )}
 
           {activeTab === "inspector" && <PropertyInspector />}
