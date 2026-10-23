@@ -1,1 +1,55 @@
-SEE_FILE
+--- a/src/routes/studio.tsx
++++ b/src/routes/studio.tsx
+@@ -3,6 +3,8 @@
+ import * as THREE from "three";
+ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+ import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
++import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
++import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+ import { importGlbFile } from "@/forge/import-glb.ts";
+ import {
+   ArrowLeft,
+@@ -318,6 +320,43 @@
+       renderer.outputColorSpace = THREE.SRGBColorSpace;
+       renderer.toneMapping = THREE.ACESFilmicToneMapping;
+       renderer.toneMappingExposure = project.scene.exposure || 1;
++      // Image-based lighting (Task 2): RoomEnvironment / RGBE for realistic PBR.
++      const pmrem = new THREE.PMREMGenerator(renderer);
++      pmrem.compileEquirectangularShader();
++      const applyPresetEnv = () => {
++        const preset = project.scene.environment ?? "studio";
++        if (preset === "none") {
++          renderScene!.environment = null;
++          return;
++        }
++        const room = new RoomEnvironment();
++        const envTex = pmrem.fromScene(room).texture;
++        room.dispose();
++        renderScene!.environment = envTex;
++        if (preset === "sunset") renderScene!.background = new THREE.Color("#1a1210");
++        else if (preset === "city") renderScene!.background = new THREE.Color("#0e141c");
++        else if (preset === "warehouse") renderScene!.background = new THREE.Color("#121210");
++      };
++      const customUrl = project.scene.environmentUrl;
++      if (customUrl && /\.(hdr|exr)(\?|$)/i.test(customUrl)) {
++        new RGBELoader().load(
++          customUrl,
++          (texture) => {
++            if (disposed) {
++              texture.dispose();
++              return;
++            }
++            const envMap = pmrem.fromEquirectangular(texture).texture;
++            texture.dispose();
++            renderScene!.environment = envMap;
++          },
++          undefined,
++          () => applyPresetEnv(),
++        );
++      } else {
++        applyPresetEnv();
++      }
++
+       renderer.shadowMap.enabled = true;
+       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+       renderer.domElement.style.width = "100%";
