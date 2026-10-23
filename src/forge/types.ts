@@ -66,6 +66,22 @@ export type MaterialSpec = {
   opacity: number;
   emissive: string;
   emissiveIntensity: number;
+  /** MeshPhysicalMaterial values; optional for backward-compatible older project files. */
+  clearcoat?: number;
+  clearcoatRoughness?: number;
+  transmission?: number;
+  ior?: number;
+  thickness?: number;
+  sheen?: number;
+  sheenRoughness?: number;
+  sheenColor?: string;
+  /** Optional PBR texture channels. Missing IDs mean the channel is untextured. */
+  emissiveMapId?: string | null;
+  clearcoatMapId?: string | null;
+  clearcoatRoughnessMapId?: string | null;
+  transmissionMapId?: string | null;
+  thicknessMapId?: string | null;
+  sheenColorMapId?: string | null;
   alphaMode: AlphaMode;
   alphaCutoff: number;
   side: MaterialSide;
