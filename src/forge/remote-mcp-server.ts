@@ -9,6 +9,9 @@ import { makeNode } from "./nodes.ts";
 import { defaultMaterial } from "./materials.ts";
 import type { GeometrySpec, LightSpec, Project } from "./types.ts";
 import type { McpScope } from "../lib/mcp/api-keys-primitives.ts";
+import { LIMITS, BUDGET_CEILINGS } from "./limits.ts";
+import { validateScene } from "./validate.ts";
+import type { McpExecutionQueue } from "../lib/mcp/execution-jobs.server.ts";
 
 export interface RemoteMcpContext {
   userId: string;
@@ -137,6 +140,16 @@ function primitiveGeometry(kind: "box" | "sphere" | "cylinder" | "cone" | "torus
 export function createPersistedMcpServer(
   context: RemoteMcpContext,
   repository: McpProjectRepository = databaseProjectRepository,
+  executionQueue: McpExecutionQueue = {
+    async enqueue(input) {
+      const mod = await import("../lib/mcp/execution-jobs.server.ts");
+      return mod.enqueueMcpExecutionJob(input);
+    },
+    async get(userId, jobId) {
+      const mod = await import("../lib/mcp/execution-jobs.server.ts");
+      return mod.getMcpExecutionJob(userId, jobId);
+    },
+  },
 ): McpServer {
   if (!context.userId) throw new Error("A verified user identity is required.");
   const server = new McpServer({ name: "MvM 3D Forge", version: "1.1.0" });
@@ -435,6 +448,134 @@ export function createPersistedMcpServer(
     await persist(project);
     return { projectId: project.id, objectId: node.id, material: node.material };
   });
+
+  register(
+    "get_ai_workflow",
+    "Explain the supported AI workflow: inspect the scene, diagnose, run JavaScript in the open Studio browser sandbox, poll the job result, inspect the returned render screenshot, and iterate. The app does not call an AI model itself; any MCP-compatible AI client can orchestrate these tools.",
+    {},
+    "project:read",
+    async () => ({
+      endpoint: "/mcp",
+      workflow: [
+        "1. Call list_projects, then get_project or read_scene for the target project.",
+        "2. Call diagnose_project to inspect saved-scene validation issues.",
+        "3. Call run_script with mode preview first. This queues work for the project's open Studio browser tab; server-side Node execution is intentionally disabled.",
+        "4. Poll get_execution_job with the returned jobId until status is completed or failed.",
+        "5. Inspect the attached viewport screenshot and execution logs. Fix errors and try another preview.",
+        "6. Use run_script mode apply only when the result is correct and you intend to persist it. Apply requires scene:write scope.",
+        "7. Call render_project to request a fresh screenshot of the current saved scene, or export_project_glb for an actual binary GLB.",
+      ],
+      browserRequirement: "The target cloud project must be open in Studio in a signed-in browser tab. Script jobs execute there with the existing restricted Forge SDK sandbox and return logs, validation issues and a real viewport screenshot.",
+      limits: { maxCodeChars: LIMITS.maxCodeChars, maxObjectsHard: BUDGET_CEILINGS.maxObjects, maxTexturesHard: BUDGET_CEILINGS.maxTextures },
+      safety: "Preview is the default. A script is persisted only when mode='apply', the API key has scene:write, the browser run succeeds, the revision is current, and server validation passes. No AI provider key is stored by Forge.",
+    }),
+  );
+
+  register(
+    "diagnose_project",
+    "Validate a saved project scene and return errors and warnings about transforms, mesh geometry, texture references, materials, animation tracks, object/texture/triangle budgets, and export readiness.",
+    { projectId: z.string().min(1).optional() },
+    "project:read",
+    async (args) => {
+      const project = await getProject(args.projectId);
+      const issues = validateScene(
+        { objects: project.objects, textures: project.textures, clips: project.clips },
+        {
+          maxObjects: BUDGET_CEILINGS.maxObjects,
+          maxTextures: BUDGET_CEILINGS.maxTextures,
+          maxTrianglesHard: BUDGET_CEILINGS.maxTrianglesHard,
+        },
+      );
+      return {
+        projectId: project.id,
+        projectName: project.name,
+        ok: !issues.some((entry) => entry.severity === "error"),
+        counts: {
+          objects: project.objects.length,
+          meshes: project.objects.filter((entry) => entry.type === "mesh").length,
+          lights: project.objects.filter((entry) => entry.type === "light").length,
+          textures: project.textures.length,
+          clips: project.clips.length,
+        },
+        issues,
+      };
+    },
+  );
+
+  register(
+    "run_script",
+    "Queue a JavaScript scene script for the target project's open Studio browser sandbox. Default mode is preview (does not save). Apply requires scene:write and persists only after browser execution succeeds and server-side validation passes. Poll get_execution_job to retrieve logs, validation issues and the actual viewport screenshot.",
+    {
+      projectId: z.string().min(1),
+      code: z.string().min(1).max(LIMITS.maxCodeChars),
+      mode: z.enum(["preview", "apply"]).default("preview"),
+    },
+    "scene:execute",
+    async (args) => {
+      if (args.mode === "apply") requireScope("scene:write");
+      const project = await repository.load(context.userId, args.projectId);
+      if (!project || project.author !== context.userId) throw new Error("Project not found or access denied.");
+      const job = await executionQueue.enqueue({
+        userId: context.userId,
+        projectId: project.id,
+        kind: "script",
+        code: args.code,
+        applyChanges: args.mode === "apply",
+        baseUpdatedAt: project.updatedAt,
+      });
+      return {
+        jobId: job.id, status: job.status, mode: args.mode,
+        projectId: job.projectId, projectRevision: job.baseUpdatedAt,
+        needsOpenStudioTab: true, nextTool: "get_execution_job",
+        instructions: "Open this saved project in the MvM 3D Studio in a signed-in browser tab, then poll get_execution_job using this jobId. The code is executed in that browser's Forge sandbox, not on the server.",
+      };
+    },
+  );
+
+  register(
+    "render_project",
+    "Request a fresh screenshot of the actual Three.js viewport for a saved project. The project must be open in Studio in a signed-in browser tab. Poll get_execution_job and inspect the returned image.",
+    { projectId: z.string().min(1) },
+    "scene:execute",
+    async (args) => {
+      const project = await repository.load(context.userId, args.projectId);
+      if (!project || project.author !== context.userId) throw new Error("Project not found or access denied.");
+      const job = await executionQueue.enqueue({
+        userId: context.userId, projectId: project.id, kind: "render",
+        code: "", applyChanges: false, baseUpdatedAt: project.updatedAt,
+      });
+      return {
+        jobId: job.id, status: job.status, projectId: job.projectId,
+        projectRevision: job.baseUpdatedAt, nextTool: "get_execution_job",
+        instructions: "Keep the target project open in Studio until this job completes. The returned image is captured from the real viewport canvas.",
+      };
+    },
+  );
+
+  register(
+    "get_execution_job",
+    "Poll a run_script or render_project job. Returns job status, execution logs, browser/sandbox errors, validation issues, whether changes were applied, and an actual viewport screenshot as an MCP image when available.",
+    { jobId: z.string().min(1) },
+    "scene:execute",
+    async (args) => {
+      const job = await executionQueue.get(context.userId, args.jobId);
+      if (!job) throw new Error("Execution job not found or access denied.");
+      const summary = {
+        jobId: job.id, projectId: job.projectId, kind: job.kind,
+        status: job.status, mode: job.applyChanges ? "apply" : "preview",
+        projectRevision: job.baseUpdatedAt, result: job.result, error: job.error,
+        createdAt: job.createdAt, updatedAt: job.updatedAt, completedAt: job.completedAt,
+        screenshotAvailable: Boolean(job.screenshotDataUrl),
+        waitingForStudio: job.status === "queued" || job.status === "running" || job.status === "awaiting_capture",
+      };
+      const content: Array<Record<string, unknown>> = [{ type: "text", text: JSON.stringify(summary, null, 2) }];
+      if (job.screenshotDataUrl) {
+        const match = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(job.screenshotDataUrl);
+        if (match) content.push({ type: "image", mimeType: "image/" + match[1], data: match[2] });
+      }
+      return { content };
+    },
+  );
 
   server.tool("export_project_glb", "Export a project as actual binary glTF (GLB) bytes embedded in the MCP result.", {
     projectId: z.string().min(1).optional(),
