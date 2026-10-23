@@ -64,8 +64,8 @@ export async function materialFor(
   spec: MaterialSpec,
   textures: TextureAsset[],
   mode: "material" | "solid" | "wireframe",
-): Promise<THREE.MeshStandardMaterial> {
-  const material = new THREE.MeshStandardMaterial();
+): Promise<THREE.MeshPhysicalMaterial> {
+  const material = new THREE.MeshPhysicalMaterial();
   material.name = spec.name ?? "";
   if (mode === "solid") {
     material.color.set(spec.color);
@@ -78,6 +78,14 @@ export async function materialFor(
     material.metalness = spec.metalness;
     material.emissive.set(spec.emissive);
     material.emissiveIntensity = spec.emissiveIntensity;
+    material.clearcoat = spec.clearcoat ?? 0;
+    material.clearcoatRoughness = spec.clearcoatRoughness ?? 0.12;
+    material.transmission = spec.transmission ?? 0;
+    material.ior = spec.ior ?? 1.5;
+    material.thickness = spec.thickness ?? 0;
+    material.sheen = spec.sheen ?? 0;
+    material.sheenRoughness = spec.sheenRoughness ?? 0.5;
+    material.sheenColor.set(spec.sheenColor ?? "#FFFFFF");
   }
   material.opacity = spec.opacity;
   material.transparent = spec.alphaMode === "BLEND" || spec.opacity < 0.999;
@@ -88,13 +96,19 @@ export async function materialFor(
   material.wireframe = mode === "wireframe";
   if (mode === "material") {
     const byId = new Map(textures.map((tex) => [tex.id, tex]));
-    const assign = async (id: string | null, slot: "map" | "normalMap" | "aoMap" | "roughnessMap" | "metalnessMap") => {
+    const assign = async (
+      id: string | null | undefined,
+      slot: "map" | "normalMap" | "aoMap" | "roughnessMap" | "metalnessMap" |
+        "emissiveMap" | "clearcoatMap" | "clearcoatRoughnessMap" |
+        "transmissionMap" | "thicknessMap" | "sheenColorMap"
+    ) => {
       if (!id) return;
       const asset = byId.get(id);
       if (!asset) return;
       const source = await loadTextureSource(asset);
       if (!source) return;
-      const colorSpace = slot === "map" && asset.colorSpace === "srgb" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      const srgbSlot = slot === "map" || slot === "emissiveMap" || slot === "sheenColorMap";
+      const colorSpace = srgbSlot && asset.colorSpace === "srgb" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       material[slot] = bindMap(source, spec, colorSpace);
     };
     await assign(spec.mapId, "map");
@@ -102,6 +116,12 @@ export async function materialFor(
     await assign(spec.aoMapId, "aoMap");
     await assign(spec.roughnessMapId, "roughnessMap");
     await assign(spec.metalnessMapId, "metalnessMap");
+    await assign(spec.emissiveMapId, "emissiveMap");
+    await assign(spec.clearcoatMapId, "clearcoatMap");
+    await assign(spec.clearcoatRoughnessMapId, "clearcoatRoughnessMap");
+    await assign(spec.transmissionMapId, "transmissionMap");
+    await assign(spec.thicknessMapId, "thicknessMap");
+    await assign(spec.sheenColorMapId, "sheenColorMap");
   }
   return material;
 }
