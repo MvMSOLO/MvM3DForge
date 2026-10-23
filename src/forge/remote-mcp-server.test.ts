@@ -244,7 +244,10 @@ describe("Remote MCP server end-to-end tool registry", () => {
       job.screenshotDataUrl = "data:image/jpeg;base64,ZmFrZQ==";
       executionQueue.jobs.set(job.id, job);
       const result = await session.client.callTool({ name: "get_execution_job", arguments: { jobId: job.id } });
-      const image = result.content.find((item: { type: string }) => item.type === "image") as { data?: string; mimeType?: string } | undefined;
+      const resultContent = (result as unknown as {
+        content: Array<{ type: string; data?: string; mimeType?: string; text?: string }>;
+      }).content;
+      const image = resultContent.find((item) => item.type === "image");
       assert.equal(image?.mimeType, "image/jpeg");
       assert.equal(image?.data, "ZmFrZQ==");
     } finally { await session.close(); }
