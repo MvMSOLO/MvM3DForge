@@ -3,6 +3,7 @@ import { ForgeError } from "./errors.ts";
 import { blankCode, defaultSceneSettings, editorRig, projectShell } from "./nodes.ts";
 import type { Project, ScriptPatch } from "./types.ts";
 import { starterById, type StarterId } from "./examples.ts";
+import { coerceMaterial } from "./materials.ts";
 import { executeUserCode } from "./sdk/execute.ts";
 
 export function applyScriptPatch(project: Project, patch: ScriptPatch): Project {
@@ -89,7 +90,13 @@ export function migrateProject(raw: unknown): Project {
     code: typeof data.code === "string" ? data.code : blankCode,
     codeLanguage: "javascript",
     author: typeof data.author === "string" ? data.author : "",
-    objects: Array.isArray(data.objects) && data.objects.length ? data.objects : editorRig(),
+    objects: Array.isArray(data.objects) && data.objects.length
+      ? data.objects.map((node) =>
+          node && typeof node === "object" && "material" in node && node.material
+            ? { ...node, material: coerceMaterial(node.material as Partial<import("./types.ts").MaterialSpec>) }
+            : node,
+        )
+      : editorRig(),
     textures: Array.isArray(data.textures) ? data.textures : [],
     clips: Array.isArray(data.clips) ? data.clips : [],
     autoplayClipId: typeof data.autoplayClipId === "string" ? data.autoplayClipId : null,
