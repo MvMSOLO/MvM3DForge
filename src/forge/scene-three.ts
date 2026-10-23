@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { canvasFromPixels, loadHtmlImage, rasterizeTexture } from "./textures.ts";
 import { buildGeometry } from "./geometry-build.ts";
+import { coerceMaterial } from "./materials.ts";
 import type { MaterialSpec, Project, SceneNode, TextureAsset } from "./types.ts";
 
 const sourceCache = new Map<string, THREE.Texture>();
@@ -64,37 +65,60 @@ export async function materialFor(
   spec: MaterialSpec,
   textures: TextureAsset[],
   mode: "material" | "solid" | "wireframe",
-): Promise<THREE.MeshStandardMaterial> {
-  const material = new THREE.MeshStandardMaterial();
+): Promise<THREE.MeshPhysicalMaterial> {
+  const material = new THREE.MeshPhysicalMaterial();
   material.name = spec.name ?? "";
   if (mode === "solid") {
     material.color.set(spec.color);
     material.roughness = 0.82;
     material.metalness = 0;
     material.emissive.set("#000000");
+    material.clearcoat = 0;
+    material.transmission = 0;
+    material.sheen = 0;
   } else {
     material.color.set(spec.color);
     material.roughness = spec.roughness;
     material.metalness = spec.metalness;
     material.emissive.set(spec.emissive);
     material.emissiveIntensity = spec.emissiveIntensity;
+    material.clearcoat = spec.clearcoat ?? 0;
+    material.clearcoatRoughness = spec.clearcoatRoughness ?? 0;
+    material.transmission = spec.transmission ?? 0;
+    material.ior = spec.ior ?? 1.5;
+    material.thickness = spec.thickness ?? 0;
+    material.sheen = spec.sheen ?? 0;
+    material.sheenRoughness = spec.sheenRoughness ?? 0.5;
+    material.sheenColor.set(spec.sheenColor ?? "#ffffff");
+    const ns = spec.normalScale ?? 1;
+    material.normalScale.set(ns, ns);
   }
   material.opacity = spec.opacity;
-  material.transparent = spec.alphaMode === "BLEND" || spec.opacity < 0.999;
+  const needsBlend =
+    spec.alphaMode === "BLEND" ||
+    spec.opacity < 0.999 ||
+    (spec.transmission ?? 0) > 0.001;
+  material.transparent = needsBlend;
   material.alphaTest = spec.alphaMode === "MASK" ? spec.alphaCutoff : 0;
-  material.depthWrite = spec.alphaMode !== "BLEND";
+  material.depthWrite = spec.alphaMode !== "BLEND" && (spec.transmission ?? 0) < 0.001;
   material.side =
     spec.side === "double" ? THREE.DoubleSide : spec.side === "back" ? THREE.BackSide : THREE.FrontSide;
   material.wireframe = mode === "wireframe";
   if (mode === "material") {
     const byId = new Map(textures.map((tex) => [tex.id, tex]));
-    const assign = async (id: string | null, slot: "map" | "normalMap" | "aoMap" | "roughnessMap" | "metalnessMap") => {
+    const assign = async (
+      id: string | null | undefined,
+      slot: "map" | "normalMap" | "aoMap" | "roughnessMap" | "metalnessMap" | "emissiveMap",
+    ) => {
       if (!id) return;
       const asset = byId.get(id);
       if (!asset) return;
       const source = await loadTextureSource(asset);
       if (!source) return;
-      const colorSpace = slot === "map" && asset.colorSpace === "srgb" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      const colorSpace =
+        (slot === "map" || slot === "emissiveMap") && asset.colorSpace === "srgb"
+          ? THREE.SRGBColorSpace
+          : THREE.NoColorSpace;
       material[slot] = bindMap(source, spec, colorSpace);
     };
     await assign(spec.mapId, "map");
@@ -102,6 +126,7 @@ export async function materialFor(
     await assign(spec.aoMapId, "aoMap");
     await assign(spec.roughnessMapId, "roughnessMap");
     await assign(spec.metalnessMapId, "metalnessMap");
+    await assign(spec.emissiveMapId ?? null, "emissiveMap");
   }
   return material;
 }
@@ -184,7 +209,7 @@ export async function buildObject(
     if (node.material.aoMapId && geometry.getAttribute("uv") && !geometry.getAttribute("uv2")) {
       geometry.setAttribute("uv2", geometry.getAttribute("uv").clone());
     }
-    const material = await materialFor(node.material, textures, mode);
+    const material = await materialFor(coerceMaterial(node.material), textures, mode);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = shadow;
     mesh.receiveShadow = shadow;
@@ -215,7 +240,6 @@ export async function assembleScene(
   const byId = new Map<string, THREE.Object3D>();
   let shadowsLeft = 1;
 
-  // Build all nodes first so child nodes can resolve parents regardless of order.
   for (const node of project.objects) {
     if (options.onlyVisible && !node.visible) continue;
     const allowShadow = Boolean(node.light?.castShadow) && shadowsLeft > 0 && options.shadows;
@@ -246,7 +270,6 @@ export async function assembleScene(
     applyLocalTransform(object, node);
   }
 
-  // Directional/spot light targets must be part of the scene graph.
   scene.traverse((object) => {
     const light = object as THREE.DirectionalLight | THREE.SpotLight;
     if ((light instanceof THREE.DirectionalLight || light instanceof THREE.SpotLight) && light.target.parent === null) {
@@ -286,9 +309,6 @@ export function animationClips(
         keyframe.setInterpolation(THREE.InterpolateLinear);
         tracks.push(keyframe);
       } else {
-        // Preserve intentional full rotations. A direct 0° -> 360° quaternion
-        // track has identical endpoints, so Three.js can interpret it as no motion.
-        // Subdivide Euler angles into <=90° steps before converting them to quaternions.
         const sortedKeys = [...track.keyframes].sort((a, b) => a.time - b.time);
         const uniqueKeys = [...new Map(sortedKeys.map((key) => [key.time, key])).values()];
         const rotationSamples: { time: number; value: number[] }[] = [];
@@ -340,8 +360,8 @@ export function disposeObject(object: THREE.Object3D) {
     const material = mesh.material;
     const list = Array.isArray(material) ? material : material ? [material] : [];
     for (const entry of list) {
-      const std = entry as THREE.MeshStandardMaterial;
-      for (const key of ["map", "normalMap", "aoMap", "roughnessMap", "metalnessMap"] as const) {
+      const std = entry as THREE.MeshPhysicalMaterial;
+      for (const key of ["map", "normalMap", "aoMap", "roughnessMap", "metalnessMap", "emissiveMap"] as const) {
         const map = std[key];
         if (map && map.uuid !== sourceCacheGetUuid(map)) map.dispose();
       }
