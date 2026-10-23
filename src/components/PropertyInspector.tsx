@@ -359,8 +359,6 @@ export function PropertyInspector() {
             ))}
             {textureStatus && <div className="rounded border border-white/10 bg-white/[.03] px-2 py-1.5 text-[10px] leading-4 text-slate-400">{textureStatus}</div>}
           </div>
-        </>
-      )}
         <div className="space-y-3 border-t border-white/10 pt-3">
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">PBR Material</div>
           <div className="space-y-2">
@@ -417,6 +415,7 @@ export function PropertyInspector() {
             </div>
           </div>
         </div>
+        </>
       )}
     </div>
   );
