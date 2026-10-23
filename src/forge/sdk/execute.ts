@@ -403,6 +403,21 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       opacity,
       emissive: hexColor(apiName, "emissive", src.emissive, base.emissive),
       emissiveIntensity: num(apiName, "emissiveIntensity", src.emissiveIntensity, 1, 0, 50),
+      clearcoat: unit(apiName, "clearcoat", src.clearcoat, base.clearcoat ?? 0),
+      clearcoatRoughness: unit(apiName, "clearcoatRoughness", src.clearcoatRoughness, base.clearcoatRoughness ?? 0.12),
+      transmission: unit(apiName, "transmission", src.transmission, base.transmission ?? 0),
+      ior: num(apiName, "ior", src.ior, base.ior ?? 1.5, 1, 2.333),
+      thickness: num(apiName, "thickness", src.thickness, base.thickness ?? 0, 0, 10),
+      sheen: unit(apiName, "sheen", src.sheen, base.sheen ?? 0),
+      sheenRoughness: unit(apiName, "sheenRoughness", src.sheenRoughness, base.sheenRoughness ?? 0.5),
+      sheenColor: hexColor(apiName, "sheenColor", src.sheenColor, base.sheenColor ?? "#FFFFFF"),
+      normalScale: num(apiName, "normalScale", src.normalScale, base.normalScale ?? 1, 0, 10),
+      emissiveMapId: readTexture(src.emissiveMap ?? src.emissiveMapId, apiName),
+      clearcoatMapId: readTexture(src.clearcoatMap ?? src.clearcoatMapId, apiName),
+      clearcoatRoughnessMapId: readTexture(src.clearcoatRoughnessMap ?? src.clearcoatRoughnessMapId, apiName),
+      transmissionMapId: readTexture(src.transmissionMap ?? src.transmissionMapId, apiName),
+      thicknessMapId: readTexture(src.thicknessMap ?? src.thicknessMapId, apiName),
+      sheenColorMapId: readTexture(src.sheenColorMap ?? src.sheenColorMapId, apiName),
       alphaMode:
         src.alphaMode === undefined
           ? explicitlyTransparent || opacity < 0.999
@@ -1220,6 +1235,21 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       opacity: typeof pbr.opacity === "number" ? pbr.opacity : 1,
       emissive,
       emissiveIntensity: typeof pbr.emissiveIntensity === "number" ? pbr.emissiveIntensity : 0,
+      clearcoat: threeMaterial instanceof THREE.MeshPhysicalMaterial ? threeMaterial.clearcoat : 0,
+      clearcoatRoughness: threeMaterial instanceof THREE.MeshPhysicalMaterial ? threeMaterial.clearcoatRoughness : 0.12,
+      transmission: threeMaterial instanceof THREE.MeshPhysicalMaterial ? threeMaterial.transmission : 0,
+      ior: threeMaterial instanceof THREE.MeshPhysicalMaterial ? threeMaterial.ior : 1.5,
+      thickness: threeMaterial instanceof THREE.MeshPhysicalMaterial ? threeMaterial.thickness : 0,
+      sheen: threeMaterial instanceof THREE.MeshPhysicalMaterial ? threeMaterial.sheen : 0,
+      sheenRoughness: threeMaterial instanceof THREE.MeshPhysicalMaterial ? threeMaterial.sheenRoughness : 0.5,
+      sheenColor: threeMaterial instanceof THREE.MeshPhysicalMaterial ? "#" + threeMaterial.sheenColor.getHexString() : "#FFFFFF",
+      normalScale: threeMaterial instanceof THREE.MeshStandardMaterial ? threeMaterial.normalScale.x : 1,
+      emissiveMapId: null,
+      clearcoatMapId: null,
+      clearcoatRoughnessMapId: null,
+      transmissionMapId: null,
+      thicknessMapId: null,
+      sheenColorMapId: null,
       alphaMode: threeMaterial.transparent ? "BLEND" : threeMaterial.alphaTest > 0 ? "MASK" : "OPAQUE",
       alphaCutoff: typeof threeMaterial.alphaTest === "number" ? threeMaterial.alphaTest : 0.5,
       side,
@@ -1235,19 +1265,28 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     };
   }
 
-  function threeMaterialForSpec(spec: MaterialSpec): THREE.MeshStandardMaterial {
-    const material = new THREE.MeshStandardMaterial({
+  function threeMaterialForSpec(spec: MaterialSpec): THREE.MeshPhysicalMaterial {
+    const material = new THREE.MeshPhysicalMaterial({
       color: spec.color,
       roughness: spec.roughness,
       metalness: spec.metalness,
       emissive: spec.emissive,
       emissiveIntensity: spec.emissiveIntensity,
+      clearcoat: spec.clearcoat ?? 0,
+      clearcoatRoughness: spec.clearcoatRoughness ?? 0.12,
+      transmission: spec.transmission ?? 0,
+      ior: spec.ior ?? 1.5,
+      thickness: spec.thickness ?? 0,
+      sheen: spec.sheen ?? 0,
+      sheenRoughness: spec.sheenRoughness ?? 0.5,
+      sheenColor: spec.sheenColor ?? "#FFFFFF",
       opacity: spec.opacity,
       transparent: spec.alphaMode === "BLEND" || spec.opacity < 0.999,
       side: spec.side === "double" ? THREE.DoubleSide : spec.side === "back" ? THREE.BackSide : THREE.FrontSide,
       depthWrite: spec.alphaMode !== "BLEND",
     });
     material.name = spec.name ?? "";
+    material.normalScale.setScalar(spec.normalScale ?? 1);
     if (spec.alphaMode === "MASK") material.alphaTest = spec.alphaCutoff;
     return material;
   }
