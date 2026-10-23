@@ -79,7 +79,21 @@ function LoginPage() {
             });
 
       if (result.error) {
-        setError(result.error.message || (mode === "signup" ? "Could not create your account." : "Could not sign in."));
+        const details = result.error as unknown as {
+          message?: unknown;
+          status?: unknown;
+          code?: unknown;
+        };
+        const fallback = mode === "signup" ? "Could not create your account." : "Could not sign in.";
+        const message =
+          typeof details.message === "string" && details.message.trim()
+            ? details.message
+            : details.code === "AUTH_DATABASE_NOT_CONFIGURED" || details.status === 503
+              ? "Account storage is not connected on this deployment yet. A persistent database must be connected before accounts can be created or used."
+              : typeof details.status === "number" && details.status >= 500
+                ? "The authentication server could not complete this request. Check that the deployment database is connected, then try again."
+                : fallback;
+        setError(message);
         return;
       }
 
