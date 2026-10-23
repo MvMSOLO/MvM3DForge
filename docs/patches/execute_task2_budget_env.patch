@@ -1,1 +1,173 @@
-SEE_FILE
+--- a/src/forge/sdk/execute.ts
++++ b/src/forge/sdk/execute.ts
+@@ -2,7 +2,7 @@
+ import { ForgeError, PRELUDE_LINES, errorToIssue, issue } from "../errors.ts";
+ import { computeMeshStats } from "../geometry-build.ts";
+ import { HUMANOID_DEFAULTS, buildHumanoidNodes, type HumanoidParams } from "../humanoid.ts";
+-import { LIMITS } from "../limits.ts";
++import { LIMITS, BUDGET_CEILINGS, BUDGET_PROFILES, createSessionBudget, type BudgetProfileId, type SessionBudget } from "../limits.ts";
+ import { defaultMaterial } from "../materials.ts";
+ import { makeNode } from "../nodes.ts";
+ import type {
+@@ -222,6 +222,8 @@
+     };
+   }
+ 
++  const sessionBudget: SessionBudget = createSessionBudget();
++
+   const internals = new Map<string, Internal>();
+   const publics = new Map<string, PublicObject>();
+   const textures: TextureAsset[] = [];
+@@ -231,6 +233,7 @@
+   const paints: (() => Promise<void>)[] = [];
+   let background: string | undefined;
+   let environment: EnvironmentPreset | undefined;
++  let environmentUrl: string | null | undefined;
+   let exposure: number | undefined;
+   let camera: ScriptPatch["camera"];
+   let projectName: string | undefined;
+@@ -255,8 +258,8 @@
+   }
+ 
+   function makeInternal(partial: Parameters<typeof makeNode>[0], source: SceneNode["source"] = "script"): Internal {
+-    if (internals.size >= LIMITS.maxObjects) {
+-      throw new ForgeError("MVM_E_OBJECT_LIMIT", `Object budget is ${LIMITS.maxObjects}.`, {
++    if (internals.size >= sessionBudget.maxObjects) {
++      throw new ForgeError("MVM_E_OBJECT_LIMIT", `Object budget is ${sessionBudget.maxObjects}.`, {
+         recoveryHint: "Add fewer objects, or reuse groups.",
+       });
+     }
+@@ -344,17 +347,17 @@
+   function attach(internal: Internal) {
+     if (!internal.inScene) {
+       const sceneCount = [...internals.values()].filter((item) => item.inScene).length;
+-      if (sceneCount >= LIMITS.maxObjects) {
+-        throw new ForgeError("MVM_E_OBJECT_LIMIT", `Cannot add more than ${LIMITS.maxObjects} scene objects.`, {
++      if (sceneCount >= sessionBudget.maxObjects) {
++        throw new ForgeError("MVM_E_OBJECT_LIMIT", `Cannot add more than ${sessionBudget.maxObjects} scene objects.`, {
+           recoveryHint: "Remove objects before adding more.",
+         });
+       }
+       internal.inScene = true;
+-      if (triangleLoad() > LIMITS.maxTrianglesHard) {
++      if (triangleLoad() > sessionBudget.maxTrianglesHard) {
+         internal.inScene = false;
+         throw new ForgeError(
+           "MVM_E_TRIANGLE_LIMIT",
+-          `Adding ${internal.node.name} exceeds the hard triangle limit of ${LIMITS.maxTrianglesHard}.`,
++          `Adding ${internal.node.name} exceeds the hard triangle limit of ${sessionBudget.maxTrianglesHard}.`,
+           { recoveryHint: "Lower segment counts.", context: { name: internal.node.name } },
+         );
+       }
+@@ -446,8 +449,8 @@
+     opts: unknown,
+     colorSpace: TextureColorSpace,
+   ): TexHandle {
+-    if (textures.length >= LIMITS.maxTextures) {
+-      throw new ForgeError("MVM_E_TEXTURE_LIMIT", `Texture budget is ${LIMITS.maxTextures}.`, {
++    if (textures.length >= sessionBudget.maxTextures) {
++      throw new ForgeError("MVM_E_TEXTURE_LIMIT", `Texture budget is ${sessionBudget.maxTextures}.`, {
+         recoveryHint: "Reuse a texture handle instead of creating another.",
+       });
+     }
+@@ -729,8 +732,8 @@
+           const nodes = buildHumanoidNodes(params, "script");
+           let group: PublicObject | null = null;
+           for (const node of nodes) {
+-            if (internals.size >= LIMITS.maxObjects) {
+-              throw new ForgeError("MVM_E_OBJECT_LIMIT", `Humanoid exceeded the object budget of ${LIMITS.maxObjects}.`);
++            if (internals.size >= sessionBudget.maxObjects) {
++              throw new ForgeError("MVM_E_OBJECT_LIMIT", `Humanoid exceeded the object budget of ${sessionBudget.maxObjects}.`);
+             }
+             const internal = makeInternal(
+               {
+@@ -909,19 +912,70 @@
+           background = hexColor("mvm.scene.background", "color", color, "#10161E");
+           return background;
+         },
+         environment(preset: unknown) {
+-          if (preset !== "studio" && preset !== "neutral" && preset !== "none") {
++          const allowed = ["studio", "neutral", "city", "sunset", "warehouse", "none"] as const;
++          if (typeof preset !== "string" || !(allowed as readonly string[]).includes(preset)) {
+             throw new ForgeError(
+               "MVM_E_ARGUMENT_TYPE",
+-              'mvm.scene.environment expected "studio", "neutral", or "none".',
++              `mvm.scene.environment expected one of ${allowed.join(", ")}.`,
+               { recoveryHint: 'Use mvm.scene.environment("studio").' },
+             );
+           }
+-          environment = preset;
++          environment = preset as EnvironmentPreset;
+           return preset;
+         },
++        /** Optional equirectangular / HDR URL for custom IBL (stored on the project scene). */
++        environmentMap(url: unknown) {
++          if (url == null || url === "") {
++            environmentUrl = null;
++            return null;
++          }
++          if (typeof url !== "string" || url.length > 4096) {
++            throw new ForgeError("MVM_E_ARGUMENT_TYPE", "mvm.scene.environmentMap expected a URL string (max 4096 chars).", {
++              recoveryHint: "Pass an https:// or data: URL to an equirectangular image.",
++            });
++          }
++          environmentUrl = url;
++          return url;
++        },
+         exposure(value: unknown) {
+           exposure = num("mvm.scene.exposure", "value", value, 1, 0, 5);
+           return exposure;
+         },
+       },
++      runtime: {
++        /** Raise session object/texture budgets up to BUDGET_CEILINGS. AI-optional. */
++        budget(opts?: unknown) {
++          const src = record(opts ?? {}, "mvm.runtime.budget");
++          if (src.profile !== undefined) {
++            const id = String(src.profile) as BudgetProfileId;
++            if (!(id in BUDGET_PROFILES)) {
++              throw new ForgeError("MVM_E_ARGUMENT_TYPE", `Unknown budget profile "${id}".`, {
++                recoveryHint: "Use default, studio, or pro.",
++              });
++            }
++            const next = createSessionBudget(undefined, id);
++            sessionBudget.maxObjects = next.maxObjects;
++            sessionBudget.maxTextures = next.maxTextures;
++            sessionBudget.maxTrianglesHard = next.maxTrianglesHard;
++          }
++          if (src.maxObjects !== undefined) {
++            const n = num("mvm.runtime.budget", "maxObjects", src.maxObjects, sessionBudget.maxObjects, 1, BUDGET_CEILINGS.maxObjects);
++            sessionBudget.maxObjects = n;
++          }
++          if (src.maxTextures !== undefined) {
++            const n = num("mvm.runtime.budget", "maxTextures", src.maxTextures, sessionBudget.maxTextures, 1, BUDGET_CEILINGS.maxTextures);
++            sessionBudget.maxTextures = n;
++          }
++          if (src.maxTrianglesHard !== undefined) {
++            const n = num(
++              "mvm.runtime.budget",
++              "maxTrianglesHard",
++              src.maxTrianglesHard,
++              sessionBudget.maxTrianglesHard,
++              LIMITS.maxTrianglesWarning,
++              BUDGET_CEILINGS.maxTrianglesHard,
++            );
++            sessionBudget.maxTrianglesHard = n;
++          }
++          return { ...sessionBudget, ceilings: { ...BUDGET_CEILINGS } };
++        },
++        limits() {
++          return { ...sessionBudget, ceilings: { ...BUDGET_CEILINGS }, defaults: { maxObjects: LIMITS.maxObjects, maxTextures: LIMITS.maxTextures } };
++        },
++      },
+       object: {
+         setParent(child: unknown, parent: unknown) {
+           const childNode = requireInternal(child, "mvm.object.setParent");
+@@ -1158,6 +1212,7 @@
+         })),
+         background,
+         environment,
++        environmentUrl: environmentUrl ?? undefined,
+         exposure,
+         camera,
+         projectName,
