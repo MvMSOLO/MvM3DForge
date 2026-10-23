@@ -37,7 +37,7 @@ const textureSlots: { label: string; key: TextureSlot; data: boolean }[] = [
 ];
 
 export function PropertyInspector() {
-  const { project, selectedObjectId, updateNodeTransform, updateNodeProperties, removeNode } = useStudioStore();
+  const { project, selectedObjectId, setProject, updateNodeTransform, updateNodeProperties, removeNode } = useStudioStore();
 
   const textureInputRef = useRef<HTMLInputElement>(null);
   const pendingTextureSlot = useRef<TextureSlot>("mapId");
@@ -346,7 +346,7 @@ export function PropertyInspector() {
                   >Import</button>
                 </div>
                 <select
-                  value={node.material[slot.key] ?? ""}
+                  value={node.material?.[slot.key] ?? ""}
                   onChange={(e) => updateTextureSlot(slot.key, e.target.value)}
                   className="w-full rounded border border-white/10 bg-[#101821] px-2 py-1.5 text-[10px] text-slate-200 outline-none focus:border-[#83f0ce]/50"
                 >
