@@ -367,3 +367,43 @@ test("physical PBR rejects out-of-range transmission and ior", async () => {
     assert.match(badIor.error.message, /ior/i);
   }
 });
+
+test("runtime budget profile raises the actual object budget within hard ceilings", async () => {
+  const result = await executeUserCode([
+    'const budget = mvm.runtime.budget({ profile: "studio" });',
+    'console.log(JSON.stringify(budget));',
+    'for (let i = 0; i < 405; i += 1) {',
+    '  const mesh = mvm.geometry.box({ name: "Budget_Mesh_" + i });',
+    '  mvm.scene.add(mesh);',
+    '}',
+  ].join("\n"));
+  assert.equal(result.ok, true, result.ok ? "" : result.error.message);
+  if (!result.ok) return;
+  assert.equal(result.patch.objects.length, 405);
+  assert.ok(result.logs.some((entry) => entry.message.includes('"maxObjects":800')));
+  assert.ok(result.logs.some((entry) => entry.message.includes('"maxTextures":48')));
+});
+
+test("environment preset, custom HDR URL and exposure survive script normalization", async () => {
+  const result = await executeUserCode([
+    'mvm.scene.environment("sunset");',
+    'mvm.scene.environmentMap("https://cdn.example.com/studio.hdr");',
+    'mvm.scene.exposure(1.2);',
+    'const mesh = mvm.geometry.box({ name: "Environment_Test" });',
+    'mvm.scene.add(mesh);',
+  ].join("\n"));
+  assert.equal(result.ok, true, result.ok ? "" : result.error.message);
+  if (!result.ok) return;
+  assert.equal(result.patch.environment, "sunset");
+  assert.equal(result.patch.environmentUrl, "https://cdn.example.com/studio.hdr");
+  assert.equal(result.patch.exposure, 1.2);
+});
+
+test("custom environment URL rejects unsupported protocols and file types", async () => {
+  const http = await executeUserCode('mvm.scene.environmentMap("http://example.com/studio.hdr");');
+  assert.equal(http.ok, false);
+  if (!http.ok) assert.match(http.error.message, /HTTPS/i);
+  const png = await executeUserCode('mvm.scene.environmentMap("https://example.com/studio.png");');
+  assert.equal(png.ok, false);
+  if (!png.ok) assert.match(png.error.message, /environment URL/i);
+});
