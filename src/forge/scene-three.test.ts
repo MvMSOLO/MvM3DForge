@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyScriptPatch, projectShell } from "./project.ts";
+import { applyScriptPatch } from "./project.ts";
+import { projectShell } from "./nodes.ts";
 import { assembleScene, animationClips } from "./scene-three.ts";
 import { executeUserCode } from "./sdk/execute.ts";
 
