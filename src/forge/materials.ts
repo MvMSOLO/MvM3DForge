@@ -16,10 +16,25 @@ export function defaultMaterial(partial?: Partial<MaterialSpec>): MaterialSpec {
     aoMapId: null,
     roughnessMapId: null,
     metalnessMapId: null,
+    emissiveMapId: null,
+    clearcoat: 0,
+    clearcoatRoughness: 0,
+    transmission: 0,
+    ior: 1.5,
+    thickness: 0,
+    sheen: 0,
+    sheenRoughness: 0.5,
+    sheenColor: "#ffffff",
+    normalScale: 1,
     repeat: [1, 1],
     offset: [0, 0],
     rotation: 0,
     wrap: "repeat",
     ...partial,
   };
+}
+
+/** Fill missing physical / map fields on older project materials (schema v1 compatible). */
+export function coerceMaterial(input: Partial<MaterialSpec> | null | undefined): MaterialSpec {
+  return defaultMaterial(input ?? undefined);
 }
