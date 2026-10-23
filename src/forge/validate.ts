@@ -60,7 +60,7 @@ export function validateScene(input: {
       triangles += tris;
       if (node.stats && !node.stats.hasUV) {
         const mat = node.material;
-        const textured = Boolean(mat && (mat.mapId || mat.normalMapId || mat.aoMapId || mat.roughnessMapId || mat.metalnessMapId));
+        const textured = Boolean(mat && (mat.mapId || mat.normalMapId || mat.aoMapId || mat.roughnessMapId || mat.metalnessMapId || mat.emissiveMapId));
         if (textured) {
           issues.push(
             issue("MVM_E_UV_MISSING", `${node.name} uses a texture but has no UVs. The texture will not map correctly.`, {
@@ -96,7 +96,7 @@ export function validateScene(input: {
           { key: "roughnessMapId", label: "roughness" },
           { key: "metalnessMapId", label: "metalness" },
         ];
-        for (const key of ["mapId", "normalMapId", "aoMapId", "roughnessMapId", "metalnessMapId"] as const) {
+        for (const key of ["mapId", "normalMapId", "aoMapId", "roughnessMapId", "metalnessMapId", "emissiveMapId"] as const) {
           const id = mat[key];
           if (id && !texIds.has(id)) {
             issues.push(
