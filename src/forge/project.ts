@@ -32,6 +32,7 @@ export function applyScriptPatch(project: Project, patch: ScriptPatch): Project 
       ...project.scene,
       background: patch.background ?? project.scene.background,
       environment: patch.environment ?? project.scene.environment,
+      environmentUrl: patch.environmentUrl !== undefined ? patch.environmentUrl : project.scene.environmentUrl,
       exposure: patch.exposure ?? project.scene.exposure,
       camera: patch.camera ? { ...project.scene.camera, ...patch.camera } : project.scene.camera,
     },
