@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
 import { importGlbFile } from "@/forge/import-glb.ts";
 import {
   ArrowLeft,
@@ -270,6 +273,9 @@ function Studio() {
     let resizeObserver: ResizeObserver | undefined;
     let mixer: THREE.AnimationMixer | undefined;
     let clock: THREE.Clock | undefined;
+    let pmremGenerator: THREE.PMREMGenerator | undefined;
+    let environmentTarget: THREE.WebGLRenderTarget | undefined;
+    let sourceEnvironmentTexture: THREE.Texture | undefined;
 
     void (async () => {
       const built = await assembleScene(project, { mode: viewMode, shadows: true, onlyVisible: false });
@@ -318,6 +324,75 @@ function Studio() {
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = project.scene.exposure || 1;
+
+      // Image-based lighting: prefiltered RoomEnvironment by default, optional HDR/EXR.
+      pmremGenerator = new THREE.PMREMGenerator(renderer);
+      pmremGenerator.compileEquirectangularShader();
+
+      const applyPresetEnvironment = () => {
+        if (disposed || !renderScene || !pmremGenerator) return;
+        const preset = project.scene.environment ?? "studio";
+        if (preset === "none") {
+          renderScene.environment = null;
+          environmentTarget?.dispose();
+          environmentTarget = undefined;
+          return;
+        }
+        const room = new RoomEnvironment();
+        const nextTarget = pmremGenerator.fromScene(room);
+        room.dispose();
+        environmentTarget?.dispose();
+        environmentTarget = nextTarget;
+        renderScene.environment = nextTarget.texture;
+
+        const sceneWithPbrEnvironment = renderScene as THREE.Scene & { environmentIntensity?: number };
+        const intensities: Record<string, number> = {
+          studio: 1,
+          neutral: 0.72,
+          city: 1.15,
+          sunset: 1.08,
+          warehouse: 0.82,
+        };
+        sceneWithPbrEnvironment.environmentIntensity = intensities[preset] ?? 1;
+
+        if (preset === "sunset") renderScene.background = new THREE.Color("#1a1210");
+        else if (preset === "city") renderScene.background = new THREE.Color("#0e141c");
+        else if (preset === "warehouse") renderScene.background = new THREE.Color("#121210");
+        else renderScene.background = new THREE.Color(project.scene.background || "#10161e");
+      };
+
+      const customUrl = project.scene.environmentUrl;
+      if (customUrl) {
+        const urlPath = customUrl.split(/[?#]/, 1)[0] || customUrl;
+        const onEnvironmentLoaded = (texture: THREE.Texture) => {
+          if (disposed || !pmremGenerator || !renderScene) {
+            texture.dispose();
+            return;
+          }
+          texture.mapping = THREE.EquirectangularReflectionMapping;
+          const nextTarget = pmremGenerator.fromEquirectangular(texture);
+          environmentTarget?.dispose();
+          sourceEnvironmentTexture?.dispose();
+          environmentTarget = nextTarget;
+          sourceEnvironmentTexture = texture;
+          renderScene.environment = nextTarget.texture;
+          renderScene.background = texture;
+          (renderScene as THREE.Scene & { environmentIntensity?: number }).environmentIntensity = 1;
+        };
+        const onEnvironmentError = () => {
+          if (!disposed) applyPresetEnvironment();
+        };
+        if (/\.hdr$/i.test(urlPath)) {
+          new RGBELoader().load(customUrl, onEnvironmentLoaded, undefined, onEnvironmentError);
+        } else if (/\.exr$/i.test(urlPath)) {
+          new EXRLoader().load(customUrl, onEnvironmentLoaded, undefined, onEnvironmentError);
+        } else {
+          applyPresetEnvironment();
+        }
+      } else {
+        applyPresetEnvironment();
+      }
+
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.domElement.style.width = "100%";
@@ -357,6 +432,9 @@ function Studio() {
       cancelAnimationFrame(frame);
       resizeObserver?.disconnect();
       controls?.dispose();
+      environmentTarget?.dispose();
+      sourceEnvironmentTexture?.dispose();
+      pmremGenerator?.dispose();
       renderer?.dispose();
       renderer?.domElement.remove();
       if (mixerRef.current === mixer) mixerRef.current = null;

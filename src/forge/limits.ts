@@ -24,14 +24,13 @@ export const LIMITS = {
 } as const;
 
 /**
- * Hard safety ceilings. Scripts may raise session budgets via mvm.runtime.budget()
- * up to these values — never above. AI-optional, code-first.
+ * Hard safety ceilings. Scripts may raise object, texture and triangle budgets via
+ * mvm.runtime.budget() up to these values — never above. Code size stays fixed.
  */
 export const BUDGET_CEILINGS = {
   maxObjects: 2_000,
   maxTextures: 64,
   maxTrianglesHard: 3_000_000,
-  maxCodeChars: 400_000,
 } as const;
 
 export type BudgetProfileId = "default" | "studio" | "pro";
