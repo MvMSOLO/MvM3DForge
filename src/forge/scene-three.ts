@@ -108,17 +108,19 @@ export async function materialFor(
     const byId = new Map(textures.map((tex) => [tex.id, tex]));
     const assign = async (
       id: string | null | undefined,
-      slot: "map" | "normalMap" | "aoMap" | "roughnessMap" | "metalnessMap" | "emissiveMap",
+      slot:
+        | "map" | "normalMap" | "aoMap" | "roughnessMap" | "metalnessMap" | "emissiveMap"
+        | "clearcoatMap" | "clearcoatRoughnessMap" | "transmissionMap" | "thicknessMap" | "sheenColorMap",
     ) => {
       if (!id) return;
       const asset = byId.get(id);
       if (!asset) return;
       const source = await loadTextureSource(asset);
       if (!source) return;
-      const colorSpace =
-        (slot === "map" || slot === "emissiveMap") && asset.colorSpace === "srgb"
-          ? THREE.SRGBColorSpace
-          : THREE.NoColorSpace;
+      const isColorMap = slot === "map" || slot === "emissiveMap" || slot === "sheenColorMap";
+      const colorSpace = isColorMap && asset.colorSpace === "srgb"
+        ? THREE.SRGBColorSpace
+        : THREE.NoColorSpace;
       material[slot] = bindMap(source, spec, colorSpace);
     };
     await assign(spec.mapId, "map");
@@ -127,6 +129,11 @@ export async function materialFor(
     await assign(spec.roughnessMapId, "roughnessMap");
     await assign(spec.metalnessMapId, "metalnessMap");
     await assign(spec.emissiveMapId ?? null, "emissiveMap");
+    await assign(spec.clearcoatMapId, "clearcoatMap");
+    await assign(spec.clearcoatRoughnessMapId, "clearcoatRoughnessMap");
+    await assign(spec.transmissionMapId, "transmissionMap");
+    await assign(spec.thicknessMapId, "thicknessMap");
+    await assign(spec.sheenColorMapId, "sheenColorMap");
   }
   return material;
 }
