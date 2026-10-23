@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { importGlbFile } from "@/forge/import-glb.ts";
 import {
   ArrowLeft,
   Activity,
@@ -104,6 +105,7 @@ function downloadBlob(blob: Blob, name: string) {
 function Studio() {
   const viewportRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const glbFileRef = useRef<HTMLInputElement>(null);
 
   const {
     project,
@@ -442,6 +444,38 @@ function Studio() {
     }
   }
 
+  async function importGlb(file?: File) {
+    if (!file || !project) return;
+    setBusy(true);
+    setMessage("Importing GLB · reading meshes, PBR values and embedded maps…");
+    try {
+      const before = { ...project, code, updatedAt: Date.now() };
+      const result = await importGlbFile(file, before);
+      useHistoryStore.getState().executeCommand({
+        description: "Import GLB · " + file.name,
+        undo: () => setProject(before),
+        redo: () => setProject(result.project),
+      });
+      setActiveClipId(result.project.autoplayClipId ?? result.project.clips[0]?.id ?? null);
+      setIsPlaying(Boolean(result.project.autoplayClipId ?? result.project.clips[0]?.id));
+      const report = [
+        "[GLB] Imported " + file.name,
+        "[GLB] Meshes: " + result.meshesAdded + " · textures: " + result.texturesAdded + " · animations: " + result.animationsAdded,
+        ...result.warnings.map((warning) => "[WARN] " + warning),
+      ];
+      setLogs(report);
+      if (result.warnings.length) setActiveTab("console");
+      setMessage("GLB imported · " + result.meshesAdded + " meshes · " + result.texturesAdded + " textures");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "GLB import failed.";
+      addLog("[ERROR] GLB import: " + detail);
+      setActiveTab("console");
+      setMessage(detail);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const meshes = project?.objects.filter((node) => node.type === "mesh") ?? [];
 
   return (
@@ -497,6 +531,24 @@ function Studio() {
             <CmdIcon size={14} /> <span className="hidden sm:inline">Commands</span> (Cmd+K)
           </button>
 
+          <button
+            onClick={() => glbFileRef.current?.click()}
+            disabled={!project || busy}
+            className="inline-flex items-center gap-2 rounded-lg border border-[#83f0ce]/25 px-3 py-2 text-xs text-[#83f0ce] hover:border-[#83f0ce]/60 disabled:opacity-40 cursor-pointer"
+            title="Import a binary GLB model with supported embedded textures and materials"
+          >
+            <Box size={14} /> Import GLB
+          </button>
+          <input
+            ref={glbFileRef}
+            type="file"
+            accept=".glb,model/gltf-binary"
+            className="hidden"
+            onChange={(event) => {
+              void importGlb(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
           <button
             onClick={() => fileRef.current?.click()}
             className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 hover:border-white/25 cursor-pointer"
