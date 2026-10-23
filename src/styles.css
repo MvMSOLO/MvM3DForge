@@ -217,3 +217,67 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
     overflow: auto;
   }
 }
+
+/* Desktop Studio: lock the workspace to the viewport and keep long scripts
+   scrolling inside the code editor instead of growing the whole page. */
+@media (min-width: 1024px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .forge-shell {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .forge-workspace {
+    min-height: 0;
+    overflow: hidden;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .forge-workspace > aside,
+  .forge-workbench,
+  .forge-viewport-panel,
+  .forge-code-panel {
+    min-height: 0;
+  }
+
+  .forge-workspace > aside {
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .forge-workbench {
+    overflow: hidden;
+  }
+
+  .forge-code-panel {
+    overflow: hidden;
+  }
+
+  .forge-code-panel textarea {
+    min-height: 0;
+    max-height: 100%;
+    resize: none;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
+
+@media (max-width: 1023px) {
+  .forge-code-panel {
+    min-height: 460px;
+  }
+
+  .forge-code-panel textarea {
+    min-height: 0;
+    resize: none;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+}
