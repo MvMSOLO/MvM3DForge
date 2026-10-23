@@ -98,21 +98,18 @@ export type MaterialSpec = {
   wrap: TextureWrap;
 };
 
-export type LightSpec =
-  | { kind: "ambient"; color: string; intensity: number }
-  | { kind: "directional"; color: string; intensity: number; castShadow: boolean }
-  | { kind: "point"; color: string; intensity: number; distance: number; decay: number; castShadow: boolean }
-  | {
-      kind: "spot";
-      color: string;
-      intensity: number;
-      distance: number;
-      decay: number;
-      angle: number;
-      penumbra: number;
-      castShadow: boolean;
-    }
-  | { kind: "hemisphere"; skyColor: string; groundColor: string; intensity: number };
+export type LightSpec = {
+  kind: "ambient" | "hemisphere" | "directional" | "point" | "spot";
+  color: string;
+  intensity: number;
+  groundColor?: string;
+  distance?: number;
+  decay?: number;
+  angle?: number;
+  penumbra?: number;
+  castShadow?: boolean;
+  target?: Vec3;
+};
 
 export type TextureAsset = {
   id: string;
@@ -124,6 +121,17 @@ export type TextureAsset = {
   dataUrl?: string;
   generator?: TextureGenerator;
   params?: Record<string, string | number>;
+};
+
+export type NodeSource = "script" | "manual" | "editor" | "import";
+
+export type MeshStats = {
+  vertices: number;
+  triangles: number;
+  hasUV: boolean;
+  hasNormals: boolean;
+  bboxMin: Vec3;
+  bboxMax: Vec3;
 };
 
 export type AnimProperty = "position" | "rotation" | "scale" | "quaternion";
@@ -150,27 +158,24 @@ export type AnimClip = {
   source: "script" | "import" | "user";
 };
 
-export type MeshStats = {
-  vertices: number;
-  triangles: number;
-  hasNormals: boolean;
-  hasUV: boolean;
-};
-
 export type SceneNode = {
   id: string;
   name: string;
-  type: "mesh" | "light" | "group" | "camera";
+  type: "mesh" | "group" | "light" | "camera";
   parentId: string | null;
-  position: Vec3;
-  rotation: Vec3;
-  scale: Vec3;
+  source: NodeSource;
   visible: boolean;
   locked: boolean;
-  source: "script" | "import" | "user" | "editor";
+  /** Local position in metres. */
+  position: Vec3;
+  /** Local Euler XYZ in degrees. */
+  rotation: Vec3;
+  scale: Vec3;
   geometry?: GeometrySpec;
   material?: MaterialSpec;
   light?: LightSpec;
+  /** True when the user edited transform/material after the last script run. */
+  scriptDirty?: boolean;
   stats?: MeshStats;
 };
 
