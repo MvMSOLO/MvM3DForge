@@ -168,7 +168,6 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
     baseMesh.position.set(0, 0.25, 0);
     root.add(baseMesh);
 
-    // Match all geometry paths used by the user's pavilion script.
     const pillarGeo = mvm.geometry.cylinder({
       radiusTop: 0.15, radiusBottom: 0.15, height: 4, radialSegments: 16
     });
@@ -217,7 +216,6 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
     coreMesh.position.set(0, 2.25, 0);
     root.add(coreMesh);
 
-    // Direct BufferGeometry is supported too.
     const nativeMesh = new THREE.Mesh(
       new THREE.BoxGeometry(1, 1, 1),
       new THREE.MeshStandardMaterial({ color: "#247BFF", roughness: 0.4, metalness: 0.2 })
@@ -296,8 +294,8 @@ test("mixed Forge and native Three.js objects convert into Forge nodes and prese
   assert.equal(result.patch.clips[0]?.tracks.length, 2);
   assert.equal(result.patch.clips[0]?.tracks.every((track) => track.objectId === core?.id), true);
   assert.equal(result.patch.autoplayClipId, result.patch.clips[0]?.id);
-  assert.match(result.logs.map((log) => log.message).join("\n"), /discovered [1-9]\d* native scene objects and [1-9]\d* native mesh objects/);
-  assert.match(result.logs.map((log) => log.message).join("\n"), /converted 9 native mesh objects into Forge nodes/);
+  assert.match(result.logs.map((log) => log.message).join("\\n"), /discovered [1-9]\\d* native scene objects and [1-9]\\d* native mesh objects/);
+  assert.match(result.logs.map((log) => log.message).join("\\n"), /converted 9 native mesh objects into Forge nodes/);
 });
 
 test("animation track and export request are recorded", async () => {
@@ -310,4 +308,62 @@ test("animation track and export request are recorded", async () => {
   assert.equal(result.patch.clips[0]?.tracks[0]?.property, "position");
   assert.equal(result.patch.exportRequest?.filename, "roundtrip.glb");
   assert.ok(result.patch.textures.length >= 1);
+});
+
+test("physical PBR channels survive mvm.material.pbr normalization", async () => {
+  const result = await executeUserCode(`
+    const glass = mvm.material.pbr({
+      name: "Physical_Glass",
+      color: "#E8F4FF",
+      roughness: 0.05,
+      metalness: 0,
+      transmission: 0.92,
+      ior: 1.45,
+      thickness: 0.2,
+      clearcoat: 1,
+      clearcoatRoughness: 0.08,
+      sheen: 0.35,
+      sheenRoughness: 0.4,
+      sheenColor: "#CCDDEE",
+      normalScale: 1.25,
+      opacity: 1,
+    });
+    const pane = mvm.geometry.box({ width: 1, height: 1, depth: 0.08, name: "Physical_Pane" });
+    pane.material = glass;
+    mvm.scene.add(pane);
+  `);
+  assert.equal(result.ok, true, result.ok ? "" : result.error.message);
+  if (!result.ok) return;
+  const pane = result.patch.objects.find((node) => node.name === "Physical_Pane");
+  const mat = pane?.material;
+  assert.ok(mat, "mesh material missing");
+  assert.equal(mat?.name, "Physical_Glass");
+  assert.equal(mat?.transmission, 0.92);
+  assert.equal(mat?.ior, 1.45);
+  assert.equal(mat?.thickness, 0.2);
+  assert.equal(mat?.clearcoat, 1);
+  assert.equal(mat?.clearcoatRoughness, 0.08);
+  assert.equal(mat?.sheen, 0.35);
+  assert.equal(mat?.sheenRoughness, 0.4);
+  assert.equal(mat?.sheenColor, "#ccddee");
+  assert.equal(mat?.normalScale, 1.25);
+});
+
+test("physical PBR rejects out-of-range transmission and ior", async () => {
+  const badTransmission = await executeUserCode(`
+    mvm.material.pbr({ color: "#ffffff", transmission: 1.5 });
+  `);
+  assert.equal(badTransmission.ok, false);
+  if (!badTransmission.ok) {
+    assert.equal(badTransmission.error.code, "MVM_E_MATERIAL_RANGE");
+    assert.match(badTransmission.error.message, /transmission/i);
+  }
+
+  const badIor = await executeUserCode(`
+    mvm.material.pbr({ color: "#ffffff", ior: 0.5 });
+  `);
+  assert.equal(badIor.ok, false);
+  if (!badIor.ok) {
+    assert.match(badIor.error.message, /ior/i);
+  }
 });
