@@ -98,12 +98,51 @@ export const authConfigured =
 // the broker's preview client accepts.
 const explicitBaseURL = env("BETTER_AUTH_URL");
 const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3.vercel.app";
-// Explicit `string[]` (not a readonly tuple) — Better Auth's DynamicBaseURLConfig
-// requires a mutable `allowedHosts: string[]`.
+
+// Exact aliases previously used by this project; do not trust every *.vercel.app host.
+const COMPATIBLE_PRODUCTION_ORIGINS = [
+  CANONICAL_PRODUCTION_ORIGIN,
+  "https://mvm3d.vercel.app",
+  "https://mvm3dforge.vercel.app",
+] as const;
+
+/** Exact HTTPS hostnames injected by Vercel for this deployment, branch, and project. */
+function configuredVercelHost(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value.includes("://") ? value : "https://" + value);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      return undefined;
+    }
+    return url.host.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+const vercelDeploymentHosts = [
+  env("VERCEL_URL"),
+  env("VERCEL_BRANCH_URL"),
+  env("VERCEL_PROJECT_PRODUCTION_URL"),
+]
+  .map(configuredVercelHost)
+  .filter((host): host is string => Boolean(host));
+
+const productionOrigins = Array.from(new Set([
+  ...COMPATIBLE_PRODUCTION_ORIGINS,
+  ...vercelDeploymentHosts.map((host) => "https://" + host),
+]));
+
+// Explicit string[] (not a readonly tuple) — Better Auth dynamic baseURL requires it.
 const previewAllowedHosts: string[] = [...PREVIEW_ALLOWED_HOSTS];
-// Local `npm run dev` (port 8080 contract). Browsers may send Origin as any of
-// these for the same server — trusting only `localhost` rejects `127.0.0.1` and
-// breaks email/password with "Invalid origin".
+// Local dev server accepts these loopback origins on port 8080.
 const LOCAL_DEV_ORIGINS: string[] = [
   "http://localhost:8080",
   "http://127.0.0.1:8080",
@@ -112,7 +151,7 @@ const LOCAL_DEV_ORIGINS: string[] = [
 const baseURL = explicitBaseURL ?? {
   // Include loopback hosts so dynamic baseURL resolves for local email/password
   // (not only the preview wildcard).
-  allowedHosts: [...previewAllowedHosts, new URL(CANONICAL_PRODUCTION_ORIGIN).host, "localhost", "127.0.0.1", "[::1]"],
+  allowedHosts: [...previewAllowedHosts, ...productionOrigins.map((origin) => new URL(origin).host), "localhost", "127.0.0.1", "[::1]"],
   // `auto` → trust both http:// and https:// expansions of allowedHosts
   // (preview is https; local dev is http).
   protocol: "auto" as const,
@@ -123,9 +162,8 @@ const baseURL = explicitBaseURL ?? {
 // Missing entries here surface as FORBIDDEN "Invalid origin".
 const trustedOrigins: string[] = [
   ...(explicitBaseURL ? [explicitBaseURL] : []),
-  // Keep the canonical deployment origin trusted even when BETTER_AUTH_URL
-  // has not yet been copied into a newly renamed Vercel project.
-  CANONICAL_PRODUCTION_ORIGIN,
+  // Trust exact project aliases and platform-provided Vercel hosts only.
+  ...productionOrigins,
   // Host wildcards (matched against Origin's host)
   ...previewAllowedHosts,
   // Full-origin wildcards (matched against Origin)
