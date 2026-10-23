@@ -224,6 +224,7 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
       sheen: finiteNumber(physical.sheen, 0),
       sheenRoughness: finiteNumber(physical.sheenRoughness, 0.5),
       sheenColor: physical.sheenColor instanceof THREE.Color ? "#" + physical.sheenColor.getHexString() : "#FFFFFF",
+      normalScale: finiteNumber(source.normalScale?.x, 1),
     });
     const channelIds: Record<string, string | null> = {};
     for (const [property, idKey, colorSpace] of TEXTURE_SLOTS) {
