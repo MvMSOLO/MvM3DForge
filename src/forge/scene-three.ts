@@ -286,7 +286,33 @@ export function animationClips(
         keyframe.setInterpolation(THREE.InterpolateLinear);
         tracks.push(keyframe);
       } else {
-        const values = track.keyframes.flatMap((key) => {
+        // Preserve intentional full rotations. A direct 0° -> 360° quaternion
+        // track has identical endpoints, so Three.js can interpret it as no motion.
+        // Subdivide Euler angles into <=90° steps before converting them to quaternions.
+        const sortedKeys = [...track.keyframes].sort((a, b) => a.time - b.time);
+        const uniqueKeys = [...new Map(sortedKeys.map((key) => [key.time, key])).values()];
+        const rotationSamples: { time: number; value: number[] }[] = [];
+        if (uniqueKeys.length) {
+          rotationSamples.push({ time: uniqueKeys[0].time, value: uniqueKeys[0].value.slice(0, 3) });
+        }
+        for (let index = 1; index < uniqueKeys.length; index += 1) {
+          const from = uniqueKeys[index - 1];
+          const to = uniqueKeys[index];
+          const delta = [0, 1, 2].map((axis) => (to.value[axis] ?? 0) - (from.value[axis] ?? 0));
+          const largestTurn = Math.max(...delta.map((angle) => Math.abs(angle)));
+          const steps = Math.min(64, Math.max(1, Math.ceil(largestTurn / 90)));
+          for (let step = 1; step <= steps; step += 1) {
+            const amount = step / steps;
+            rotationSamples.push({
+              time: from.time + (to.time - from.time) * amount,
+              value: [0, 1, 2].map((axis) => {
+                const start = from.value[axis] ?? 0;
+                return start + ((to.value[axis] ?? 0) - start) * amount;
+              }),
+            });
+          }
+        }
+        const values = rotationSamples.flatMap((key) => {
           const euler = new THREE.Euler(
             THREE.MathUtils.degToRad(key.value[0] ?? 0),
             THREE.MathUtils.degToRad(key.value[1] ?? 0),
@@ -296,7 +322,8 @@ export function animationClips(
           const q = new THREE.Quaternion().setFromEuler(euler);
           return [q.x, q.y, q.z, q.w];
         });
-        const keyframe = new THREE.QuaternionKeyframeTrack(`${object.name}.quaternion`, times, values);
+        const rotationTimes = rotationSamples.map((key) => key.time);
+        const keyframe = new THREE.QuaternionKeyframeTrack(`${object.name}.quaternion`, rotationTimes, values);
         keyframe.setInterpolation(THREE.InterpolateLinear);
         tracks.push(keyframe);
       }
