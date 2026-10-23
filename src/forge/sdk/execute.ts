@@ -1263,8 +1263,8 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     };
   }
 
-  function threeMaterialForSpec(spec: MaterialSpec): THREE.MeshStandardMaterial {
-    const material = new THREE.MeshStandardMaterial({
+  function threeMaterialForSpec(spec: MaterialSpec): THREE.MeshPhysicalMaterial {
+    const material = new THREE.MeshPhysicalMaterial({
       color: spec.color,
       roughness: spec.roughness,
       metalness: spec.metalness,
