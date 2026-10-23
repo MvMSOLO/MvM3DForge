@@ -535,14 +535,14 @@ function Studio() {
             onClick={() => glbFileRef.current?.click()}
             disabled={!project || busy}
             className="inline-flex items-center gap-2 rounded-lg border border-[#83f0ce]/25 px-3 py-2 text-xs text-[#83f0ce] hover:border-[#83f0ce]/60 disabled:opacity-40 cursor-pointer"
-            title="Import a GLB/glTF model with supported embedded textures and materials"
+            title="Import a binary GLB model with supported embedded textures and materials"
           >
             <Box size={14} /> Import GLB
           </button>
           <input
             ref={glbFileRef}
             type="file"
-            accept=".glb,.gltf,model/gltf-binary,model/gltf+json"
+            accept=".glb,model/gltf-binary"
             className="hidden"
             onChange={(event) => {
               void importGlb(event.target.files?.[0]);
