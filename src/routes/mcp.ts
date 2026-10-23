@@ -1,0 +1,50 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { createPersistedMcpServer } from "@/forge/remote-mcp-server.ts";
+import { authenticateMcpApiKey } from "@/lib/mcp/api-keys.server.ts";
+function corsHeaders(): Headers {
+  return new Headers({
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+    "access-control-allow-headers": "Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-Id",
+    "access-control-expose-headers": "Mcp-Session-Id, Mcp-Protocol-Version",
+    "cache-control": "no-store",
+  });
+}
+function withCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  corsHeaders().forEach((value, key) => { if (key === "cache-control" || !headers.has(key)) headers.set(key, value); });
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+async function handleMcp(request: Request): Promise<Response> {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
+  if (!["GET", "POST", "DELETE"].includes(request.method)) return withCors(Response.json({ error: "Method not allowed." }, { status: 405 }));
+  const match = /^Bearer\s+(mvmf_live_[A-Za-z0-9_-]{32,160})$/.exec(request.headers.get("authorization") ?? "");
+  if (!match) return withCors(Response.json(
+    { error: "Missing or invalid MCP API key. Send Authorization: Bearer mvmf_live_…" },
+    { status: 401, headers: { "www-authenticate": 'Bearer realm="MvM 3D MCP"' } },
+  ));
+  let identity: Awaited<ReturnType<typeof authenticateMcpApiKey>>;
+  try { identity = await authenticateMcpApiKey(match[1]); }
+  catch { return withCors(Response.json({ error: "MCP authentication service is temporarily unavailable." }, { status: 503 })); }
+  if (!identity) return withCors(Response.json(
+    { error: "Invalid, expired or revoked MCP API key." },
+    { status: 401, headers: { "www-authenticate": 'Bearer realm="MvM 3D MCP", error="invalid_token"' } },
+  ));
+  try {
+    const server = createPersistedMcpServer({ userId: identity.userId, scopes: identity.scopes });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await server.connect(transport);
+    return withCors(await transport.handleRequest(request));
+  } catch (error) {
+    return withCors(Response.json({ error: (error instanceof Error ? error.message : "MCP request failed.").slice(0, 1000) }, { status: 500 }));
+  }
+}
+export const Route = createFileRoute("/mcp")({
+  server: { handlers: {
+    GET: ({ request }) => handleMcp(request),
+    POST: ({ request }) => handleMcp(request),
+    DELETE: ({ request }) => handleMcp(request),
+    OPTIONS: ({ request }) => handleMcp(request),
+  } },
+});

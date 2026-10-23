@@ -12,6 +12,7 @@ describe("MCP API key primitives", () => {
 
   it("accepts only known least-privilege scopes and removes duplicates", () => {
     assert.deepEqual(normalizeMcpScopes(["project:read", "project:read"]), ["project:read"]);
+    assert.deepEqual(normalizeMcpScopes(["scene:execute"]), ["scene:execute"]);
     assert.throws(() => normalizeMcpScopes(["*"]));
     assert.throws(() => normalizeMcpScopes([]));
     assert.throws(() => normalizeMcpScopes("project:read"));

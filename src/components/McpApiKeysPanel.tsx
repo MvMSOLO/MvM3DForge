@@ -3,7 +3,7 @@ import { authEnabled } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { Check, Copy, KeyRound, LoaderCircle, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 
-type Scope = "project:read" | "scene:write" | "assets:export";
+type Scope = "project:read" | "scene:write" | "scene:execute" | "assets:export";
 type ApiKeyRecord = {
   id: string;
   name: string;
@@ -18,6 +18,7 @@ type ApiKeyRecord = {
 const AVAILABLE_SCOPES: { id: Scope; title: string; detail: string }[] = [
   { id: "project:read", title: "Read projects", detail: "List projects, inspect objects and read scenes." },
   { id: "scene:write", title: "Edit scenes", detail: "Create, rename, transform and delete scene objects." },
+  { id: "scene:execute", title: "Run & test scripts", detail: "Run JavaScript in the open Studio sandbox, collect diagnostics and return a viewport screenshot." },
   { id: "assets:export", title: "Export assets", detail: "Generate binary GLB exports." },
 ];
 
@@ -175,7 +176,7 @@ export function McpApiKeysPanel() {
           </div>
           <div>
             <h3 className="text-sm font-semibold text-slate-100">Remote MCP API keys</h3>
-            <p className="mt-1 text-[10px] text-slate-500">Create a private credential for an external MCP client. OAuth is not used.</p>
+            <p className="mt-1 text-[10px] text-slate-500">Connect a compatible AI client to this MCP endpoint. The AI provider key stays in the AI client; Forge stores only this key's hash.</p>
           </div>
         </div>
         <a href="/mcp" target="_blank" rel="noreferrer" className="text-[10px] text-[#83f0ce] hover:underline">
@@ -237,6 +238,13 @@ export function McpApiKeysPanel() {
 
       {message && <p className="mt-3 text-[10px] text-[#83f0ce]">{message}</p>}
       {error && <p role="alert" className="mt-3 rounded-lg border border-red-400/20 bg-red-400/[.06] p-3 text-[11px] text-red-200">{error}</p>}
+
+      <div className="mt-4 rounded-lg border border-[#83f0ce]/15 bg-[#83f0ce]/[.035] p-3">
+        <div className="text-[11px] font-semibold text-slate-200">MCP connection</div>
+        <p className="mt-1 break-all font-mono text-[10px] text-[#83f0ce]">{typeof window === "undefined" ? "/mcp" : window.location.origin + "/mcp"}</p>
+        <p className="mt-1 text-[10px] leading-4 text-slate-500">Use Streamable HTTP with header Authorization: Bearer. Script execution, testing and screenshots require the target saved project to be open in Studio in a signed-in browser tab.</p>
+        <button type="button" onClick={() => void navigator.clipboard.writeText(window.location.origin + "/mcp").catch(() => setError("Clipboard access was blocked. Copy the endpoint text manually."))} className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-white/10 px-2.5 py-1.5 text-[10px] text-slate-300 hover:border-[#83f0ce]/40"><Copy size={11} /> Copy MCP endpoint</button>
+      </div>
 
       <div className="mt-4 border-t border-white/[.08] pt-3">
         <div className="mb-2 flex items-center justify-between gap-2">

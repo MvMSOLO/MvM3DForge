@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createPersistedMcpServer, type McpProjectRepository } from "./remote-mcp-server.ts";
+import type { EnqueueMcpExecutionJobInput, McpExecutionJob, McpExecutionQueue } from "../lib/mcp/execution-jobs.server.ts";
 import { projectShell } from "./nodes.ts";
 import type { Project } from "./types.ts";
 
@@ -34,13 +36,37 @@ class MemoryProjectRepository implements McpProjectRepository {
   }
 }
 
-async function connectClient(userId = "user-a", scopes = ["project:read", "scene:write", "assets:export"], repository = new MemoryProjectRepository()) {
+class MemoryExecutionQueue implements McpExecutionQueue {
+  readonly jobs = new Map<string, McpExecutionJob>();
+  async enqueue(input: EnqueueMcpExecutionJobInput): Promise<McpExecutionJob> {
+    const now = Date.now();
+    const job: McpExecutionJob = {
+      id: randomUUID(), userId: input.userId, projectId: input.projectId,
+      kind: input.kind, code: input.code, applyChanges: input.applyChanges,
+      baseUpdatedAt: input.baseUpdatedAt, status: "queued", result: null,
+      screenshotDataUrl: null, error: null, createdAt: now, updatedAt: now,
+      claimedAt: null, completedAt: null,
+    };
+    this.jobs.set(job.id, structuredClone(job));
+    return structuredClone(job);
+  }
+  async get(userId: string, jobId: string): Promise<McpExecutionJob | null> {
+    const job = this.jobs.get(jobId);
+    return job?.userId === userId ? structuredClone(job) : null;
+  }
+}
+async function connectClient(
+  userId = "user-a",
+  scopes = ["project:read", "scene:write", "scene:execute", "assets:export"],
+  repository = new MemoryProjectRepository(),
+  executionQueue: McpExecutionQueue = new MemoryExecutionQueue(),
+) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const server = createPersistedMcpServer({ userId, scopes }, repository);
+  const server = createPersistedMcpServer({ userId, scopes }, repository, executionQueue);
   const client = new Client({ name: "mvm-mcp-test-client", version: "1.0.0" });
   await server.connect(serverTransport);
   await client.connect(clientTransport);
-  return { client, server, repository, close: async () => {
+  return { client, server, repository, executionQueue, close: async () => {
     await client.close();
     await server.close();
   }};
@@ -53,24 +79,29 @@ function textPayload(result: any): any {
 }
 
 describe("Remote MCP server end-to-end tool registry", () => {
-  it("registers all 12 documented tools through the official MCP client", async () => {
+  it("registers the documented scene and AI execution tools through the official MCP client", async () => {
     const session = await connectClient();
     try {
       const result = await session.client.listTools();
       const names = result.tools.map((tool) => tool.name).sort();
-      assert.equal(names.length, 12);
+      assert.equal(names.length, 17);
       assert.deepEqual(names, [
         "create_light",
         "create_material",
         "create_primitive",
         "create_project",
         "delete_object",
+        "diagnose_project",
         "export_project_glb",
+        "get_ai_workflow",
+        "get_execution_job",
         "get_project",
         "inspect_object",
         "list_projects",
         "read_scene",
         "rename_project",
+        "render_project",
+        "run_script",
         "update_object",
       ]);
     } finally {
@@ -165,6 +196,65 @@ describe("Remote MCP server end-to-end tool registry", () => {
     } finally {
       await session.close();
     }
+  });
+
+  it("queues browser script jobs and enforces apply scope", async () => {
+    const repository = new MemoryProjectRepository();
+    const executionQueue = new MemoryExecutionQueue();
+    const session = await connectClient("user-a", undefined, repository, executionQueue);
+    try {
+      const created = textPayload(await session.client.callTool({ name: "create_project", arguments: { name: "AI Workflow Scene", starterId: "blank" } }));
+      const diagnosed = textPayload(await session.client.callTool({ name: "diagnose_project", arguments: { projectId: created.projectId } }));
+      assert.equal(diagnosed.projectId, created.projectId);
+      const run = textPayload(await session.client.callTool({
+        name: "run_script",
+        arguments: { projectId: created.projectId, mode: "preview", code: 'const b = mvm.geometry.box({ name: "AI Box" }); mvm.scene.add(b);' },
+      }));
+      assert.equal(run.status, "queued");
+      assert.equal(run.needsOpenStudioTab, true);
+      const queued = await executionQueue.get("user-a", run.jobId);
+      assert.equal(queued?.code.includes("AI Box"), true);
+      assert.equal(queued?.applyChanges, false);
+    } finally { await session.close(); }
+
+    const limitedRepo = new MemoryProjectRepository();
+    const limitedProject = projectShell("Read and Execute Only", "");
+    limitedProject.author = "limited-user";
+    limitedRepo.projects.set(limitedProject.id, limitedProject);
+    const limitedQueue = new MemoryExecutionQueue();
+    const limited = await connectClient("limited-user", ["project:read", "scene:execute"], limitedRepo, limitedQueue);
+    try {
+      const result = await limited.client.callTool({
+        name: "run_script",
+        arguments: { projectId: limitedProject.id, mode: "apply", code: 'mvm.geometry.box({ name: "Denied Apply" });' },
+      });
+      assert.equal(result.isError, true, "apply mode must require scene:write");
+      const queued = [...limitedQueue.jobs.values()];
+      assert.equal(queued.length, 0, "unauthorized apply must not enqueue a job");
+    } finally { await limited.close(); }
+  });
+
+  it("returns completed job screenshots as an MCP image", async () => {
+    const repository = new MemoryProjectRepository();
+    const executionQueue = new MemoryExecutionQueue();
+    const session = await connectClient("user-a", undefined, repository, executionQueue);
+    try {
+      const created = textPayload(await session.client.callTool({ name: "create_project", arguments: { name: "AI Render Scene", starterId: "blank" } }));
+      const queued = textPayload(await session.client.callTool({ name: "render_project", arguments: { projectId: created.projectId } }));
+      const job = executionQueue.jobs.get(queued.jobId);
+      assert.ok(job);
+      job.status = "completed";
+      job.result = { ok: true, phase: "render", project: { objectCount: 1 } };
+      job.screenshotDataUrl = "data:image/jpeg;base64,ZmFrZQ==";
+      executionQueue.jobs.set(job.id, job);
+      const result = await session.client.callTool({ name: "get_execution_job", arguments: { jobId: job.id } });
+      const resultContent = (result as unknown as {
+        content: Array<{ type: string; data?: string; mimeType?: string; text?: string }>;
+      }).content;
+      const image = resultContent.find((item) => item.type === "image");
+      assert.equal(image?.mimeType, "image/jpeg");
+      assert.equal(image?.data, "ZmFrZQ==");
+    } finally { await session.close(); }
   });
 
   it("returns a real binary GLB resource, not just length metadata", async () => {

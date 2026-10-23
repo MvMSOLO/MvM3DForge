@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const MCP_SCOPES = ["project:read", "scene:write", "assets:export"] as const;
+export const MCP_SCOPES = ["project:read", "scene:write", "scene:execute", "assets:export"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 export function hashMcpApiKey(token: string): string {
