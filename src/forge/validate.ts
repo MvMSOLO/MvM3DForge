@@ -1,24 +1,27 @@
 import { LIMITS } from "./limits.ts";
 import { issue } from "./errors.ts";
 import type { AnimClip, ForgeIssue, SceneNode, TextureAsset } from "./types.ts";
+import type { SessionBudget } from "./limits.ts";
 import { vecFinite } from "./nodes.ts";
 
-export function validateScene(input: {
-  objects: SceneNode[];
-  textures: TextureAsset[];
-  clips: AnimClip[];
-}): ForgeIssue[] {
+export function validateScene(
+  input: { objects: SceneNode[]; textures: TextureAsset[]; clips: AnimClip[] },
+  budget: Partial<SessionBudget> = {},
+): ForgeIssue[] {
+  const maxObjects = budget.maxObjects ?? LIMITS.maxObjects;
+  const maxTextures = budget.maxTextures ?? LIMITS.maxTextures;
+  const maxTrianglesHard = budget.maxTrianglesHard ?? LIMITS.maxTrianglesHard;
   const issues: ForgeIssue[] = [];
   const ids = new Set<string>();
   let triangles = 0;
   let shadowLights = 0;
   const texIds = new Set(input.textures.map((t) => t.id));
 
-  if (input.objects.length > LIMITS.maxObjects) {
+  if (input.objects.length > maxObjects) {
     issues.push(
       issue(
         "MVM_E_OBJECT_LIMIT",
-        `Scene has ${input.objects.length} objects. Budget is ${LIMITS.maxObjects}.`,
+        `Scene has ${input.objects.length} objects. Budget is ${maxObjects}.`,
         { recoveryHint: "Delete objects or split the project." },
       ),
     );
@@ -181,9 +184,9 @@ export function validateScene(input: {
     );
   }
 
-  if (triangles > LIMITS.maxTrianglesHard) {
+  if (triangles > maxTrianglesHard) {
     issues.push(
-      issue("MVM_E_TRIANGLE_LIMIT", `Triangle count ${Math.round(triangles)} exceeds the hard limit ${LIMITS.maxTrianglesHard}.`),
+      issue("MVM_E_TRIANGLE_LIMIT", `Triangle count ${Math.round(triangles)} exceeds the hard limit ${maxTrianglesHard}.`),
     );
   } else if (triangles > LIMITS.maxTrianglesWarning) {
     issues.push(
@@ -195,9 +198,9 @@ export function validateScene(input: {
     );
   }
 
-  if (input.textures.length > LIMITS.maxTextures) {
+  if (input.textures.length > maxTextures) {
     issues.push(
-      issue("MVM_E_TEXTURE_LIMIT", `Texture count ${input.textures.length} exceeds ${LIMITS.maxTextures}.`),
+      issue("MVM_E_TEXTURE_LIMIT", `Texture count ${input.textures.length} exceeds ${maxTextures}.`),
     );
   }
   for (const tex of input.textures) {

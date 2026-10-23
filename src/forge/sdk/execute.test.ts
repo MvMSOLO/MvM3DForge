@@ -397,6 +397,15 @@ test("environment preset, custom HDR URL and exposure survive script normalizati
   assert.equal(result.patch.environment, "sunset");
   assert.equal(result.patch.environmentUrl, "https://cdn.example.com/studio.hdr");
   assert.equal(result.patch.exposure, 1.2);
+
+  const clear = await executeUserCode('mvm.scene.environmentMap(null);');
+  assert.equal(clear.ok, true, clear.ok ? "" : clear.error.message);
+  if (!clear.ok) return;
+  assert.equal(clear.patch.environmentUrl, null);
+  const existingProject = projectShell("Clear custom environment", "");
+  existingProject.scene.environmentUrl = "https://cdn.example.com/old.hdr";
+  const clearedProject = applyScriptPatch(existingProject, clear.patch);
+  assert.equal(clearedProject.scene.environmentUrl, null);
 });
 
 test("custom environment URL rejects unsupported protocols and file types", async () => {

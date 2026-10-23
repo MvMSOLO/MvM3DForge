@@ -1138,7 +1138,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
       validate: {
         scene() {
           const patch = snapshot();
-          const issues = validateScene(patch);
+          const issues = validateScene(patch, sessionBudget);
           return {
             ok: !issues.some((item) => item.severity === "error"),
             issues,
@@ -1240,7 +1240,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
         })),
         background,
         environment,
-        environmentUrl: environmentUrl ?? undefined,
+        environmentUrl,
         exposure,
         camera,
         projectName,
@@ -1635,7 +1635,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     for (const paint of paints) await paint();
     convertThreeScene();
     const patch = snapshot();
-    patch.issues = validateScene(patch).filter((item) => item.code !== "MVM_E_EXPORT_EMPTY" || patch.objects.some((o) => o.type === "mesh"));
+    patch.issues = validateScene(patch, sessionBudget).filter((item) => item.code !== "MVM_E_EXPORT_EMPTY" || patch.objects.some((o) => o.type === "mesh"));
     const hard = patch.issues.find((item) => item.severity === "error");
     if (hard && hard.code !== "MVM_E_EXPORT_EMPTY") {
       return { ok: false, error: hard, logs, issues: patch.issues };
