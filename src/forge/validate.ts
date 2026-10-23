@@ -60,7 +60,12 @@ export function validateScene(input: {
       triangles += tris;
       if (node.stats && !node.stats.hasUV) {
         const mat = node.material;
-        const textured = Boolean(mat && (mat.mapId || mat.normalMapId || mat.aoMapId || mat.roughnessMapId || mat.metalnessMapId || mat.emissiveMapId));
+        const textured = Boolean(mat && (
+          mat.mapId || mat.normalMapId || mat.aoMapId || mat.roughnessMapId ||
+          mat.metalnessMapId || mat.emissiveMapId || mat.clearcoatMapId ||
+          mat.clearcoatRoughnessMapId || mat.transmissionMapId || mat.thicknessMapId ||
+          mat.sheenColorMapId
+        ));
         if (textured) {
           issues.push(
             issue("MVM_E_UV_MISSING", `${node.name} uses a texture but has no UVs. The texture will not map correctly.`, {
@@ -90,13 +95,25 @@ export function validateScene(input: {
       }
       const mat = node.material;
       if (mat) {
-        const dataMaps: { key: "normalMapId" | "aoMapId" | "roughnessMapId" | "metalnessMapId"; label: string }[] = [
+        const dataMaps: {
+          key: "normalMapId" | "aoMapId" | "roughnessMapId" | "metalnessMapId" |
+            "clearcoatMapId" | "clearcoatRoughnessMapId" | "transmissionMapId" | "thicknessMapId";
+          label: string;
+        }[] = [
           { key: "normalMapId", label: "normal" },
           { key: "aoMapId", label: "ambient occlusion" },
           { key: "roughnessMapId", label: "roughness" },
           { key: "metalnessMapId", label: "metalness" },
+          { key: "clearcoatMapId", label: "clearcoat" },
+          { key: "clearcoatRoughnessMapId", label: "clearcoat roughness" },
+          { key: "transmissionMapId", label: "transmission" },
+          { key: "thicknessMapId", label: "thickness" },
         ];
-        for (const key of ["mapId", "normalMapId", "aoMapId", "roughnessMapId", "metalnessMapId", "emissiveMapId"] as const) {
+        for (const key of [
+          "mapId", "normalMapId", "aoMapId", "roughnessMapId", "metalnessMapId",
+          "emissiveMapId", "clearcoatMapId", "clearcoatRoughnessMapId",
+          "transmissionMapId", "thicknessMapId", "sheenColorMapId",
+        ] as const) {
           const id = mat[key];
           if (id && !texIds.has(id)) {
             issues.push(
