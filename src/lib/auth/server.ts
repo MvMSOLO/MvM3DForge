@@ -97,7 +97,7 @@ export const authConfigured =
 // preview allowlist, which makes the OAuth `redirect_uri` the concrete preview URL
 // the broker's preview client accepts.
 const explicitBaseURL = env("BETTER_AUTH_URL");
-const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3d.vercel.app";
+const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3.vercel.app";
 // Explicit `string[]` (not a readonly tuple) — Better Auth's DynamicBaseURLConfig
 // requires a mutable `allowedHosts: string[]`.
 const previewAllowedHosts: string[] = [...PREVIEW_ALLOWED_HOSTS];
