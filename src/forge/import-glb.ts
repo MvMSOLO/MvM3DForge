@@ -415,6 +415,25 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
   const mergedObjects = [...current.objects, ...nodes];
   const mergedTextures = [...current.textures, ...textures];
   const mergedClips = [...current.clips, ...clips];
+  const bounds = new THREE.Box3().setFromObject(root);
+  const center = new THREE.Vector3();
+  const size = new THREE.Vector3();
+  bounds.getCenter(center);
+  bounds.getSize(size);
+  const span = Math.max(size.x, size.y, size.z, 1);
+  const viewDirection = new THREE.Vector3(1, 0.65, 1.35).normalize();
+  const cameraDistance = span * 1.9 + 0.5;
+  const framedCamera = {
+    ...current.scene.camera,
+    target: vec3Array(center),
+    position: [
+      center.x + viewDirection.x * cameraDistance,
+      center.y + viewDirection.y * cameraDistance,
+      center.z + viewDirection.z * cameraDistance,
+    ] as [number, number, number],
+    near: Math.max(0.01, span / 10000),
+    far: Math.max(400, span * 100),
+  };
   return {
     project: {
       ...current,
@@ -422,6 +441,7 @@ export async function importGlbFile(file: File, current: Project): Promise<GlbIm
       objects: mergedObjects,
       textures: mergedTextures,
       clips: mergedClips,
+      scene: { ...current.scene, camera: framedCamera },
       autoplayClipId: clips[0]?.id ?? current.autoplayClipId ?? null,
       updatedAt: Date.now(),
     },
