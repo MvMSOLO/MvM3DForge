@@ -84,8 +84,9 @@ describe("Remote MCP server end-to-end tool registry", () => {
     try {
       const result = await session.client.listTools();
       const names = result.tools.map((tool) => tool.name).sort();
-      assert.equal(names.length, 17);
+      assert.equal(names.length, 18);
       assert.deepEqual(names, [
+        "create_animation_clip",
         "create_light",
         "create_material",
         "create_primitive",
@@ -104,6 +105,55 @@ describe("Remote MCP server end-to-end tool registry", () => {
         "run_script",
         "update_object",
       ]);
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("creates capsule primitives and persists validated animation clips", async () => {
+    const session = await connectClient();
+    try {
+      const created = textPayload(await session.client.callTool({
+        name: "create_project",
+        arguments: { name: "Animation MCP Integration Test", starterId: "primitives" },
+      }));
+      const projectId = created.projectId as string;
+      assert.ok(projectId);
+
+      const capsule = textPayload(await session.client.callTool({
+        name: "create_primitive",
+        arguments: { projectId, kind: "capsule", name: "Animated Capsule" },
+      }));
+      assert.equal(capsule.createdObject.geometry.kind, "capsule");
+
+      const clip = textPayload(await session.client.callTool({
+        name: "create_animation_clip",
+        arguments: {
+          projectId,
+          name: "Capsule Bounce",
+          duration: 2,
+          loop: true,
+          tracks: [{
+            objectId: capsule.createdObject.id,
+            property: "position",
+            interpolation: "smooth",
+            keyframes: [
+              { time: 0, value: [0, 0, 0] },
+              { time: 1, value: [0, 1.2, 0] },
+              { time: 2, value: [0, 0, 0] },
+            ],
+          }],
+        },
+      }));
+      assert.equal(clip.createdClip.name, "Capsule Bounce");
+      assert.equal(clip.trackCount, 1);
+      assert.equal(clip.keyframeCount, 3);
+
+      const project = textPayload(await session.client.callTool({
+        name: "get_project",
+        arguments: { projectId },
+      }));
+      assert.equal(project.project.clips.some((entry: { name: string }) => entry.name === "Capsule Bounce"), true);
     } finally {
       await session.close();
     }

@@ -231,6 +231,12 @@ const authSecret =
         .digest("hex")
     : previewAuthSecret());
 
+/**
+ * Signing key shared with the MCP OAuth resource server. Keep this export
+ * server-only; it must never enter a client bundle or API response.
+ */
+export const mcpOAuthSigningSecret = authSecret;
+
 export const auth = betterAuth({
   baseURL,
   // Preview's process-stable secret keeps HMR from invalidating PGLite sessions.

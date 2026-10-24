@@ -1,32 +1,39 @@
-# MvM 3D Forge Remote MCP (API-key authentication)
+# MVM3D: Remote MCP, AI providers, and rendering modes
 
-**Endpoint:** `https://mvm3d.vercel.app/mcp`  
-**Transport:** MCP Streamable HTTP (stateless requests)  
-**Authentication:** MvM 3D Forge API key in an HTTP Bearer header; OAuth is not used.
+**MCP endpoint:** `https://mvm3d.vercel.app/mcp`  
+**Transport:** MCP Streamable HTTP  
+**Primary authentication:** OAuth 2.1 authorization code flow with PKCE (S256)  
+**Compatibility authentication:** user-scoped MVM3D API key as a Bearer token
 
-## Create an API key
+## Connect ChatGPT using only the endpoint URL
 
-1. Sign in to MvM 3D Forge and open [Studio](https://mvm3d.vercel.app/studio).
-2. Open the **3D stack / Integrations** tab.
-3. In **Remote MCP API keys**, enter a recognizable name, choose only the scopes the client needs, and set an expiry.
-4. Select **Create API key**, then copy the full `mvmf_live_…` secret immediately. It is shown only once. The database stores only its SHA-256 digest; it cannot be retrieved later.
-5. Revoke the key from the same panel if it is exposed or no longer needed.
+After this branch is deployed to the production project:
 
-Treat this key as a password. Do not commit it to Git, paste it into prompts, screenshots, or public issue reports. Prefer a separate, limited-scope key for each client.
+1. In ChatGPT, add a custom MCP connector and enter `https://mvm3d.vercel.app/mcp`.
+2. Select **OAuth** as the authentication method. Do not paste a static MVM3D API key into the OAuth form.
+3. Follow the MVM3D sign-in and consent screen and approve only the permissions needed for the connector.
+4. Once authorization completes, ChatGPT receives a scoped, short-lived OAuth access token and calls the same `/mcp` endpoint.
 
-## Available scopes
+The server publishes the OAuth authorization-server metadata at:
 
-| Scope | Permission |
-|---|---|
-| `project:read` | List and read your saved cloud projects and inspect their scene graph. |
-| `scene:write` | Create/rename projects and change scene objects, transforms, lights and materials. |
-| `assets:export` | Export authorized projects as binary GLB. |
+- `https://mvm3d.vercel.app/.well-known/oauth-authorization-server`
+- `https://mvm3d.vercel.app/.well-known/oauth-protected-resource`
+- `https://mvm3d.vercel.app/.well-known/oauth-protected-resource/mcp`
 
-Each tool checks its required scope, and every project read/write is restricted to the authenticated user's owner ID. The project must have a persistent Postgres `DATABASE_URL` configured; the remote endpoint fails closed rather than using an ephemeral serverless database.
+The MCP endpoint returns a `401` `WWW-Authenticate` challenge that identifies the protected-resource metadata. The OAuth implementation supports authorization codes with PKCE S256, Client ID Metadata Documents for ChatGPT, dynamic client registration, and RFC 9207 issuer identification. The authorization-server metadata advertises `authorization_response_iss_parameter_supported: true`; both successful and denied consent callbacks return `iss` matching the exact `issuer` value. Access tokens are audience-bound to `https://mvm3d.vercel.app/mcp`, include user and permission claims, and expire after one hour. Authorization codes are short-lived, single-use, and PKCE-verified.
 
-## Configure an MCP client
+If ChatGPT reports that it cannot discover OAuth settings, first confirm these metadata URLs return JSON on the deployed production domain. If the endpoint returns `503`, check the persistent database and deployment configuration rather than switching to unauthenticated writes.
 
-For a client that supports remote Streamable HTTP servers and custom headers, add a configuration similar to this. Replace the environment-variable placeholder using that client's supported secret mechanism; do not paste a real key into a repository-managed config.
+## Compatibility: create an API key for other MCP clients
+
+For clients that require a manually configured Bearer header:
+
+1. Sign in at [MVM3D Studio](https://mvm3d.vercel.app/studio) and open **Integrations → Remote MCP API keys**.
+2. Enter a recognizable name, select the minimum required scopes, and set an expiry.
+3. Create the key and copy the secret immediately. It is displayed only once; storage keeps a digest, not the original secret.
+4. Revoke it when it is no longer needed.
+
+Example for clients that support server headers and their own secret interpolation:
 
 ```json
 {
@@ -41,55 +48,86 @@ For a client that supports remote Streamable HTTP servers and custom headers, ad
 }
 ```
 
-Some clients do not expand environment variables inside JSON configuration values. In those clients, use their documented secret/credential field or the environment-variable interpolation syntax they explicitly support.
+Do not commit real API keys to Git or put them into prompts, screenshots, issue trackers, or shared config files.
 
-## Smoke-test the endpoint
+## Permissions
 
-Set `MVM_MCP_KEY` in your shell to the API key copied from Studio. Never substitute a real key into a source file or share it in logs.
+| Scope | Permission |
+|---|---|
+| `project:read` | List/read owned projects, inspect objects and read scene resources. |
+| `scene:write` | Create projects, geometry, materials, lights, animation clips, and edit scene objects. |
+| `scene:execute` | Queue scripts for execution in the active Studio sandbox, then read the resulting diagnostics. |
+| `assets:export` | Export owned projects as GLB. |
 
-Initialize:
+Both authentication mechanisms are scoped to the signed-in user's project ownership. Each tool verifies its required scope.
 
-```bash
-curl --fail-with-body -sS https://mvm3d.vercel.app/mcp \
-  -H "Authorization: Bearer ${MVM_MCP_KEY}" \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"mvm-smoke-test","version":"1.0.0"}}}'
+## Available MCP tools
+
+The server registers 18 tools:
+
+`list_projects`, `get_project`, `create_project`, `rename_project`, `read_scene`, `inspect_object`, `create_primitive`, `update_object`, `delete_object`, `create_light`, `create_material`, `create_animation_clip`, `export_project_glb`, `diagnose_project`, `render_project`, `run_script`, `get_execution_job`, and `get_ai_workflow`.
+
+The `create_primitive` tool supports box, sphere, cylinder, cone, torus, plane, and capsule. The animation tool validates object targets, keyframe value lengths, duration limits, and interpolation modes before persisting a clip.
+
+## MVM REGULAR and MVM ADVANCED
+
+- **MVM REGULAR** uses the existing Three.js WebGL renderer and sandbox scene workflow.
+- **MVM ADVANCED** initializes Three.js `WebGPURenderer` when the browser exposes a WebGPU adapter. It verifies the actual WebGPU backend, initializes the r186 renderer-agnostic PMREM pipeline, and only marks the mode ready after the first scene frame succeeds. If initialization or the first frame fails, it logs the reason and returns to MVM REGULAR. Renderer selection is stored locally on the current browser.
+- Environment presets plus HDR/EXR environment maps use image-based lighting in both renderer modes. The common PMREM implementation enables the metal/roughness PBR materials to reflect the environment in WebGPU rather than relying only on direct lights.
+- **Smoke test:** in Studio, create a project from the `MVM ADVANCED · WebGPU Diagnostic` starter, switch to MVM ADVANCED, then Run. Check metallic reflections, the procedural stripe texture, cyan emissive ring, and timeline animation. Confirm the console says the scene rendered with WebGPU; a scene appearing by itself does not prove backend identity.
+- The script environment exposes core Three.js classes through `THREE`; the Studio also has camera controls, GLB import/export, PBR materials, scene hierarchy, and animation playback. WebGPU does not support WebGL-only `ShaderMaterial` / `onBeforeCompile` workflows; use Three.js TSL/node materials for future custom WebGPU shaders. This is a browser-based 3D editor, not a promise of complete Blender/Unreal feature parity.
+
+## Script loaders and imported animation clips
+
+The sandbox exposes the Three.js `GLTFLoader`, `OBJLoader`, `TextureLoader`, `CubeTextureLoader`, `ImageBitmapLoader`, `FileLoader` and related core loader APIs. URL-based loads are restricted to same-origin static paths under `/assets/`, `/models/`, or `/textures/`. `data:` and `blob:` sources are allowed for in-memory data; arbitrary external HTTPS URLs are blocked by design. Import files into MVM3D or add them to the app's public asset folders before loading.
+
+A basic GLB/OBJ workflow:
+
+```javascript
+return (async () => {
+  const gltf = await new THREE.GLTFLoader().loadAsync("/assets/models/robot.glb");
+  scene.add(gltf.scene);
+
+  for (const sourceClip of gltf.animations) {
+    const imported = mvm.animation.importThreeClip(sourceClip, gltf.scene);
+    console.log("Imported clip", imported.name, imported.trackCount);
+  }
+
+  const firstClip = gltf.animations[0];
+  if (firstClip) {
+    const saved = mvm.scene.list();
+    const clip = mvm.animation.importThreeClip(firstClip, gltf.scene);
+    mvm.animation.play(clip.id);
+  }
+})();
 ```
 
-List tools (send the protocol version returned by initialize; this example uses the stable 2025-era version):
+`mvm.animation.importThreeClip(clip, root)` currently converts rigid-object `position`, `rotation`, `scale`, and `quaternion` tracks whose target object names are unique under the specified root. Rotation values are converted from radians to MVM3D's degree-based rotation convention. Unsupported tracks are skipped with diagnostic warnings: skin deformation, morph targets, material/camera/light tracks and cubic-spline animation are not fully persisted. The base mesh geometry can still be imported, but its skeleton deformation is not retained as a fully rigged character.
 
-```bash
-curl --fail-with-body -sS https://mvm3d.vercel.app/mcp \
-  -H "Authorization: Bearer ${MVM_MCP_KEY}" \
-  -H "MCP-Protocol-Version: 2025-11-25" \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-```
+For a plain OBJ asset, use `new THREE.OBJLoader().loadAsync("/assets/models/part.obj")` then add the returned object to `scene`. To parse in-memory OBJ text, use `new THREE.OBJLoader().parse(objSourceText)`.
 
-A valid result should include the complete tools array. Follow it with `tools/call` using a project ID returned from `list_projects` / `create_project`; do not use an arbitrary project ID. If the endpoint returns `401`, create a new key or verify expiry/revocation. A HTTP `403` indicates a Host/Origin allow-list restriction. A tool-level response containing `Permission denied` indicates the key lacks the required scope (tool errors are returned as MCP results and may still use HTTP 200). A `503` indicates that persistent Postgres is not configured or the key store is unavailable.
+## Configure AI providers and select a model
 
-## Real persistence workflow
+In **Studio → Integrations → MVM AI Workbench**, connect your own provider API key. The application tests the key by querying the provider's model endpoint and shows the available chat models. Select a model and the choice is saved per user. Supported providers:
 
-1. Call `create_project` using an API key with `scene:write`.
-2. Use the returned `projectId` with `create_primitive`, `update_object`, `create_light`, and `create_material`.
-3. Call `read_scene` and confirm the returned scene includes the modifications.
-4. Open Studio → **3D stack / Integrations** → **Cloud projects** → **Refresh**, then **Open** that project.
-5. Confirm the same objects and values appear in the actual Three.js viewport.
-6. Test `export_project_glb` and re-import the returned GLB data into a glTF viewer or Studio importer.
+- OpenAI
+- Anthropic
+- Google Gemini
+- Groq
+- OpenRouter
+- DeepSeek
+- Mistral AI
+- xAI
+- Together AI
 
-## Deployment configuration
+Provider keys are encrypted server-side and never included in the provider-list response. Generated code is returned for review; it is **not executed automatically**. Apply the generated script to the editor and run it only after checking it.
 
-- Configure `DATABASE_URL` in Vercel for the production environment and ensure the database user can create the migration table / apply migrations.
-- `MCP_ALLOWED_ORIGINS` may contain comma-separated additional exact HTTPS origins for trusted browser-based clients. Same-origin preview requests are allowed only when the request host itself is trusted.
-- `MCP_ALLOWED_HOSTS` may contain comma-separated exact hostnames. Known production aliases and MvM 3D Forge Vercel deployment hostnames are accepted by default.
-- Do not set permissive origins to “fix” a client without understanding the trust boundary.
+## Production requirements and diagnostics
 
-## Implemented tool catalog
+- Configure a persistent Postgres `DATABASE_URL` in the **production Vercel project** and verify migrations can run. MCP OAuth clients/codes, provider connections, API keys, projects, and execution jobs depend on persistent storage.
+- The deployment may set `MCP_PUBLIC_URL=https://mvm3d.vercel.app`; otherwise that is the default OAuth issuer/resource base URL.
+- `MCP_ALLOWED_ORIGINS` and `MCP_ALLOWED_HOSTS` may extend the exact allow lists for trusted clients; do not set permissive origins just to bypass a failed connection.
+- A `401` indicates missing/expired/invalid authentication and should advertise protected-resource metadata. A `403` normally indicates a host/origin restriction or an insufficient scope. A `503` means storage or an authentication dependency is unavailable.
+- Use an owned project ID returned by `list_projects` or `create_project`. Test changes with `read_scene`, then open the same cloud project in Studio and confirm the viewport, animation clip, or exported GLB.
 
-The endpoint registers these 12 tools. The required scopes and behavior are validated by the handlers:
-
-`list_projects`, `get_project`, `create_project`, `rename_project`, `read_scene`, `inspect_object`, `create_primitive`, `update_object`, `delete_object`, `create_light`, `create_material`, `export_project_glb`.
-
-The protocol handler uses the official MCP TypeScript SDK's Streamable HTTP transport. A successful Vercel build alone is not an end-to-end certification; run the authenticated workflow above against the exact production deployment after changes are deployed.
+A successful GitHub CI build verifies code generation, type-checking, configured regression tests, and lint. It is not proof that a new version has reached production or that the production database/domain configuration is correct. After deployment, test the exact public URL and OAuth flow before treating the connector as live.

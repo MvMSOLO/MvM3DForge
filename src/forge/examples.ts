@@ -5,6 +5,7 @@ export type StarterId =
   | "product"
   | "animated"
   | "blockout"
+  | "webgpu"
   | "roundtrip";
 
 export type Starter = {
@@ -226,6 +227,147 @@ mvm.console.log("Sweep clip ready");
 });
 mvm.scene.add(hero);
 mvm.console.log("Blockout is a proportion study, not a digital human.", mvm.object.stats(hero.children[0]));
+`,
+  },
+  {
+    id: "webgpu",
+    title: "MVM ADVANCED · WebGPU Diagnostic",
+    summary: "Renderer smoke test for PBR, procedural texture, lighting, tone mapping and animation.",
+    expected: "Five meshes appear; the metal sphere reflects the studio lights, the emissive ring glows, and the ring rotation loops on the timeline.",
+    limitation: "The scene script verifies rendering, not GPU backend identity. Confirm the viewport label says MVM ADVANCED · WebGPU and the console confirms WebGPU initialization.",
+    code: `mvm.scene.environment("studio");
+mvm.scene.exposure(1.0);
+
+const floorMaterial = mvm.material.pbr({
+  color: "#101B28",
+  roughness: 0.82,
+  metalness: 0.08
+});
+const titanium = mvm.material.pbr({
+  color: "#A9BACB",
+  roughness: 0.24,
+  metalness: 0.92
+});
+const ceramic = mvm.material.pbr({
+  color: "#16A7C7",
+  roughness: 0.3,
+  metalness: 0.24
+});
+const neon = mvm.material.pbr({
+  color: "#082C39",
+  roughness: 0.2,
+  metalness: 0.15,
+  emissive: "#24D8FF",
+  emissiveIntensity: 2.2
+});
+const hazardTexture = mvm.texture.stripes({
+  name: "WebGPU Hazard Stripes",
+  size: 128,
+  cells: 8,
+  colorA: "#152331",
+  colorB: "#E8B85D",
+  vertical: false
+});
+const texturedMaterial = mvm.material.pbr({
+  color: "#FFFFFF",
+  roughness: 0.58,
+  metalness: 0.12,
+  map: hazardTexture
+});
+
+const floor = mvm.geometry.plane({
+  width: 9,
+  height: 7,
+  widthSegments: 1,
+  heightSegments: 1
+});
+floor.name = "WebGPU Test Floor";
+floor.material = floorMaterial;
+floor.position.set(0, -0.04, 0);
+floor.rotation.set(-90, 0, 0);
+
+const sphere = mvm.geometry.sphere({
+  radius: 0.68,
+  widthSegments: 48,
+  heightSegments: 32
+});
+sphere.name = "PBR Titanium Sphere";
+sphere.material = titanium;
+sphere.position.set(-1.65, 0.7, 0);
+
+const block = mvm.geometry.box({
+  width: 1.1,
+  height: 1.1,
+  depth: 1.1,
+  widthSegments: 2,
+  heightSegments: 2,
+  depthSegments: 2
+});
+block.name = "Ceramic Calibration Cube";
+block.material = ceramic;
+block.position.set(0, 0.55, 0);
+
+const ring = mvm.geometry.torus({
+  radius: 0.48,
+  tube: 0.12,
+  radialSegments: 24,
+  tubularSegments: 64
+});
+ring.name = "Animated Neon Ring";
+ring.material = neon;
+ring.position.set(1.75, 1.05, 0);
+ring.rotation.set(35, 0, 0);
+
+const panel = mvm.geometry.box({
+  width: 1.15,
+  height: 0.13,
+  depth: 0.85
+});
+panel.name = "Textured Hazard Panel";
+panel.material = texturedMaterial;
+panel.position.set(0, 1.45, -1.45);
+panel.rotation.set(0, 0, -12);
+
+mvm.scene.add(floor, sphere, block, ring, panel);
+
+const keyLight = mvm.light.directional({
+  name: "WebGPU Key Light",
+  color: "#D8EDFF",
+  intensity: 2.0,
+  position: [-3, 5, 4],
+  target: [0, 0.6, 0],
+  castShadow: false
+});
+const rimLight = mvm.light.directional({
+  name: "WebGPU Cyan Rim",
+  color: "#22D8FF",
+  intensity: 1.4,
+  position: [3, 3, -4],
+  target: [0, 0.7, 0],
+  castShadow: false
+});
+mvm.scene.add(keyLight, rimLight);
+
+const clip = mvm.animation.clip({
+  name: "WebGPU Ring Rotation",
+  duration: 2.4,
+  loop: true
+});
+mvm.animation.track(clip, {
+  object: ring,
+  property: "rotation",
+  interpolation: "smooth",
+  keys: [
+    { time: 0, value: [35, 0, 0] },
+    { time: 1.2, value: [35, 180, 0] },
+    { time: 2.4, value: [35, 360, 0] }
+  ]
+});
+mvm.animation.play("WebGPU Ring Rotation");
+
+mvm.console.log("MVM ADVANCED TEST SCENE CREATED");
+mvm.console.log("Check: PBR, procedural texture, lights, animation and console.");
+mvm.console.log("Expected: 5 meshes and 2 lights.");
 `,
   },
   {

@@ -301,19 +301,29 @@ export function animationClips(
     for (const track of clip.tracks) {
       const object = byId.get(track.objectId);
       if (!object || track.keyframes.length < 1) continue;
-      const times = track.keyframes.map((key) => key.time);
+      // Keyframes can be authored by scripts or imported files. Three.js requires
+      // monotonically increasing times, and duplicate times make tracks ambiguous.
+      const orderedKeys = [...track.keyframes].sort((a, b) => a.time - b.time);
+      const uniqueTrackKeys = [...new Map(orderedKeys.map((key) => [key.time, key])).values()];
+      const times = uniqueTrackKeys.map((key) => key.time);
       if (track.property === "position" || track.property === "scale") {
-        const values = track.keyframes.flatMap((key) => key.value.slice(0, 3));
+        const values = uniqueTrackKeys.flatMap((key) => key.value.slice(0, 3));
         const keyframe =
           track.property === "position"
             ? new THREE.VectorKeyframeTrack(`${object.name}.position`, times, values)
             : new THREE.VectorKeyframeTrack(`${object.name}.scale`, times, values);
-        keyframe.setInterpolation(track.interpolation === "smooth" ? THREE.InterpolateSmooth : THREE.InterpolateLinear);
+        keyframe.setInterpolation(
+          track.interpolation === "step"
+            ? THREE.InterpolateDiscrete
+            : track.interpolation === "smooth"
+              ? THREE.InterpolateSmooth
+              : THREE.InterpolateLinear,
+        );
         tracks.push(keyframe);
       } else if (track.property === "quaternion") {
-        const values = track.keyframes.flatMap((key) => key.value.slice(0, 4));
+        const values = uniqueTrackKeys.flatMap((key) => key.value.slice(0, 4));
         const keyframe = new THREE.QuaternionKeyframeTrack(`${object.name}.quaternion`, times, values);
-        keyframe.setInterpolation(THREE.InterpolateLinear);
+        keyframe.setInterpolation(track.interpolation === "step" ? THREE.InterpolateDiscrete : THREE.InterpolateLinear);
         tracks.push(keyframe);
       } else {
         const sortedKeys = [...track.keyframes].sort((a, b) => a.time - b.time);
@@ -327,7 +337,7 @@ export function animationClips(
           const to = uniqueKeys[index];
           const delta = [0, 1, 2].map((axis) => (to.value[axis] ?? 0) - (from.value[axis] ?? 0));
           const largestTurn = Math.max(...delta.map((angle) => Math.abs(angle)));
-          const steps = Math.min(64, Math.max(1, Math.ceil(largestTurn / 90)));
+          const steps = track.interpolation === "step" ? 1 : Math.min(64, Math.max(1, Math.ceil(largestTurn / 90)));
           for (let step = 1; step <= steps; step += 1) {
             const amount = step / steps;
             rotationSamples.push({
@@ -351,11 +361,17 @@ export function animationClips(
         });
         const rotationTimes = rotationSamples.map((key) => key.time);
         const keyframe = new THREE.QuaternionKeyframeTrack(`${object.name}.quaternion`, rotationTimes, values);
-        keyframe.setInterpolation(THREE.InterpolateLinear);
+        keyframe.setInterpolation(track.interpolation === "step" ? THREE.InterpolateDiscrete : THREE.InterpolateLinear);
         tracks.push(keyframe);
       }
     }
-    if (tracks.length) clips.push(new THREE.AnimationClip(clip.name, clip.duration, tracks));
+    if (tracks.length) {
+      const lastKeyTime = clip.tracks.reduce(
+        (clipMax, track) => track.keyframes.reduce((trackMax, key) => Math.max(trackMax, key.time), clipMax),
+        0,
+      );
+      clips.push(new THREE.AnimationClip(clip.name, Math.max(clip.duration, lastKeyTime), tracks));
+    }
   }
   return clips;
 }

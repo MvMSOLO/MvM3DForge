@@ -32,6 +32,8 @@ import type {
 } from "../types.ts";
 import { validateScene } from "../validate.ts";
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 
 const PRELUDE = `"use strict";
 const fetch = undefined;
@@ -40,6 +42,121 @@ const WebSocket = undefined;
 const importScripts = undefined;
 const indexedDB = undefined;
 `;
+
+/**
+ * Script loaders may only request app-owned static model/texture assets or
+ * in-memory data/blob URLs. Keep third-party network requests inaccessible
+ * even when an imported Three.js loader uses FileLoader internally.
+ */
+function sandboxAssetUrl(rawUrl: string): string {
+  const value = String(rawUrl).trim();
+  if (/^(?:data|blob):/i.test(value)) return value;
+  if (typeof window === "undefined") {
+    throw new Error("Sandbox loaders can only use data:/blob: URLs in a non-browser runtime.");
+  }
+
+  let resolved: URL;
+  try {
+    resolved = new URL(value, window.location.origin);
+  } catch {
+    throw new Error("Invalid asset URL. Use an app-owned /assets/, /models/, or /textures/ path.");
+  }
+
+  if (resolved.origin !== window.location.origin) {
+    throw new Error("External asset URLs are blocked in the script sandbox. Import the asset into MVM3D or use an app-owned static asset.");
+  }
+  if (!/^\/(?:assets|models|textures)\//i.test(resolved.pathname)) {
+    throw new Error("Sandbox loaders may only read same-origin /assets/, /models/, or /textures/ files.");
+  }
+  return resolved.href;
+}
+
+function createSandboxLoadingManager(): THREE.LoadingManager {
+  const manager = new THREE.LoadingManager();
+  manager.setURLModifier((url) => sandboxAssetUrl(url));
+  return manager;
+}
+
+class SandboxFileLoader extends THREE.FileLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxImageLoader extends THREE.ImageLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxTextureLoader extends THREE.TextureLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxCubeTextureLoader extends THREE.CubeTextureLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxImageBitmapLoader extends THREE.ImageBitmapLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxDataTextureLoader extends THREE.DataTextureLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+
+  override parse(_buffer: ArrayBuffer): never {
+    throw new Error("DataTextureLoader is an abstract base. Use a concrete format loader or parse the texture data yourself.");
+  }
+}
+
+class SandboxCompressedTextureLoader extends THREE.CompressedTextureLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+
+  parse(_buffer: ArrayBuffer, _loadMipmaps?: boolean): never {
+    throw new Error("CompressedTextureLoader is an abstract base. Add a format-specific parser before loading compressed textures.");
+  }
+}
+
+class SandboxAudioLoader extends THREE.AudioLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxGLTFLoader extends GLTFLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxOBJLoader extends OBJLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+type ScriptThreeRuntime = typeof THREE & {
+  FileLoader: typeof SandboxFileLoader;
+  ImageLoader: typeof SandboxImageLoader;
+  TextureLoader: typeof SandboxTextureLoader;
+  CubeTextureLoader: typeof SandboxCubeTextureLoader;
+  ImageBitmapLoader: typeof SandboxImageBitmapLoader;
+  DataTextureLoader: typeof SandboxDataTextureLoader;
+  CompressedTextureLoader: typeof SandboxCompressedTextureLoader;
+  AudioLoader: typeof SandboxAudioLoader;
+  GLTFLoader: typeof SandboxGLTFLoader;
+  OBJLoader: typeof SandboxOBJLoader;
+};
 
 type Internal = {
   node: SceneNode;
@@ -61,7 +178,7 @@ type PendingThreeTrack = {
   clipId: string;
   object: THREE.Object3D;
   property: AnimProperty;
-  interpolation: "linear" | "smooth";
+  interpolation: AnimTrack["interpolation"];
   keyframes: AnimTrack["keyframes"];
 };
 
@@ -1037,6 +1154,141 @@ export async function executeUserCode(code: string): Promise<RunResult> {
           clips.push(clip);
           return { id: clip.id, name: clip.name };
         },
+        /**
+         * Import supported rigid-object transform tracks from a native Three.js AnimationClip.
+         * Track targets must be uniquely named descendants of the provided root. Skinned
+         * deformation, morph weights, materials and camera/light property tracks are not persisted.
+         */
+        importThreeClip(clipValue: unknown, rootValue: unknown, opts?: Record<string, unknown>) {
+          if (!(clipValue instanceof THREE.AnimationClip)) {
+            throw new ForgeError("MVM_E_ANIMATION_INVALID", "mvm.animation.importThreeClip expected a THREE.AnimationClip.");
+          }
+          if (!(rootValue instanceof THREE.Object3D)) {
+            throw new ForgeError("MVM_E_ANIMATION_INVALID", "mvm.animation.importThreeClip expected a THREE.Object3D root.");
+          }
+          if (clips.length >= LIMITS.maxClips) {
+            throw new ForgeError("MVM_E_ANIMATION_INVALID", `Clip budget is ${LIMITS.maxClips}.`);
+          }
+          const options = record(opts, "mvm.animation.importThreeClip");
+          const sourceClip = clipValue;
+          const root = rootValue;
+          const importedClip: AnimClip = {
+            id: crypto.randomUUID(),
+            name: clipName(options.name ?? sourceClip.name, "Imported Clip"),
+            duration: num(
+              "mvm.animation.importThreeClip",
+              "duration",
+              options.duration,
+              Number.isFinite(sourceClip.duration) && sourceClip.duration > 0
+                ? Math.min(sourceClip.duration, 600)
+                : 0.01,
+              0.01,
+              600,
+            ),
+            loop: options.loop === undefined ? true : Boolean(options.loop),
+            source: "import",
+            tracks: [],
+          };
+          const stagedTracks: PendingThreeTrack[] = [];
+          let maximumKeyTime = 0;
+          for (const sourceTrack of sourceClip.tracks) {
+            if (stagedTracks.length >= LIMITS.maxTracksPerClip) {
+              pushLog("warn", [`Animation "${importedClip.name}" reached the ${LIMITS.maxTracksPerClip}-track limit; remaining tracks were skipped.`]);
+              break;
+            }
+            let parsedPath: ReturnType<typeof THREE.PropertyBinding.parseTrackName>;
+            try {
+              parsedPath = THREE.PropertyBinding.parseTrackName(sourceTrack.name);
+            } catch {
+              pushLog("warn", [`Skipped unsupported imported animation binding "${sourceTrack.name}".`]);
+              continue;
+            }
+            const propertyName = parsedPath.propertyName;
+            if (!["position", "rotation", "scale", "quaternion"].includes(propertyName)) {
+              pushLog("warn", [`Skipped unsupported imported animation property "${propertyName}" in "${sourceTrack.name}".`]);
+              continue;
+            }
+            const property = propertyName as AnimProperty;
+            const valueSize = property === "quaternion" ? 4 : 3;
+            if (sourceTrack.getValueSize() !== valueSize) {
+              pushLog("warn", [`Skipped "${sourceTrack.name}": value size ${sourceTrack.getValueSize()} is not supported (expected ${valueSize}). Cubic-spline or morph tracks are not imported yet.`]);
+              continue;
+            }
+            const times = sourceTrack.times;
+            const values = sourceTrack.values;
+            if (times.length < 2 || times.length > LIMITS.maxKeyframesPerTrack || values.length !== times.length * valueSize) {
+              pushLog("warn", [`Skipped "${sourceTrack.name}": invalid or oversized keyframe data.`]);
+              continue;
+            }
+            const targetName = parsedPath.nodeName;
+            const matches: THREE.Object3D[] = [];
+            root.traverse((object) => {
+              if (object.name === targetName || object.uuid === targetName) matches.push(object);
+            });
+            if (matches.length !== 1) {
+              pushLog("warn", [`Skipped "${sourceTrack.name}": target "${targetName}" is missing or has duplicate names beneath "${root.name || root.type}".`]);
+              continue;
+            }
+            const keyframes: AnimTrack["keyframes"] = [];
+            let invalidTrack = false;
+            for (let index = 0; index < times.length; index += 1) {
+              const time = Number(times[index]);
+              if (!Number.isFinite(time) || time < 0 || time > 600) {
+                invalidTrack = true;
+                break;
+              }
+              const value = Array.from({ length: valueSize }, (_, component) => Number(values[index * valueSize + component]));
+              if (value.some((component) => !Number.isFinite(component))) {
+                invalidTrack = true;
+                break;
+              }
+              if (property === "rotation") {
+                for (let component = 0; component < value.length; component += 1) {
+                  value[component] = THREE.MathUtils.radToDeg(value[component]);
+                }
+              }
+              if (property === "quaternion") {
+                const magnitude = Math.hypot(value[0], value[1], value[2], value[3]);
+                if (magnitude < 1e-8) {
+                  invalidTrack = true;
+                  break;
+                }
+                for (let component = 0; component < 4; component += 1) value[component] /= magnitude;
+              }
+              keyframes.push({ time, value });
+            }
+            if (invalidTrack || keyframes.length < 2) {
+              pushLog("warn", [`Skipped "${sourceTrack.name}": non-finite values, invalid quaternion, or invalid keyframe times.`]);
+              continue;
+            }
+            keyframes.sort((left, right) => left.time - right.time);
+            const interpolationValue = sourceTrack.getInterpolation();
+            const interpolation: AnimTrack["interpolation"] =
+              interpolationValue === THREE.InterpolateDiscrete ? "step" :
+              interpolationValue === THREE.InterpolateSmooth ? "smooth" : "linear";
+            stagedTracks.push({
+              id: crypto.randomUUID(),
+              clipId: importedClip.id,
+              object: matches[0],
+              property,
+              interpolation,
+              keyframes,
+            });
+            maximumKeyTime = Math.max(maximumKeyTime, keyframes[keyframes.length - 1].time);
+          }
+          if (stagedTracks.length === 0) {
+            throw new ForgeError("MVM_E_ANIMATION_INVALID", "The Three.js clip contains no supported rigid-object transform tracks.", {
+              recoveryHint: "Import tracks for uniquely named objects' position, rotation, scale or quaternion. Skinned, morph and cubic-spline tracks are not supported yet.",
+            });
+          }
+          importedClip.duration = Math.max(importedClip.duration, maximumKeyTime, 0.01);
+          if (importedClip.duration > 600) {
+            throw new ForgeError("MVM_E_ANIMATION_INVALID", "Imported animation exceeds the 600-second clip limit.");
+          }
+          clips.push(importedClip);
+          pendingThreeTracks.push(...stagedTracks);
+          return { id: importedClip.id, name: importedClip.name, trackCount: stagedTracks.length };
+        },
         track(clipRef: unknown, opts?: Record<string, unknown>) {
           const o = record(opts, "mvm.animation.track");
           const clip = resolveClip(clipRef);
@@ -1399,12 +1651,26 @@ export async function executeUserCode(code: string): Promise<RunResult> {
 
   // Expose all normal Three.js constructors with only Mesh adapted. Native BufferGeometry
   // + THREE.Material pairs continue to use the exact regular Three.js behavior.
-  const runtimeTHREE = Object.create(THREE) as typeof THREE;
-  Object.defineProperty(runtimeTHREE, "Mesh", {
-    configurable: true,
-    enumerable: true,
-    value: ForgeCompatibleMesh,
-  });
+  const runtimeTHREE = Object.create(THREE) as ScriptThreeRuntime;
+  for (const [name, value] of [
+    ["Mesh", ForgeCompatibleMesh],
+    ["FileLoader", SandboxFileLoader],
+    ["ImageLoader", SandboxImageLoader],
+    ["TextureLoader", SandboxTextureLoader],
+    ["CubeTextureLoader", SandboxCubeTextureLoader],
+    ["ImageBitmapLoader", SandboxImageBitmapLoader],
+    ["DataTextureLoader", SandboxDataTextureLoader],
+    ["CompressedTextureLoader", SandboxCompressedTextureLoader],
+    ["AudioLoader", SandboxAudioLoader],
+    ["GLTFLoader", SandboxGLTFLoader],
+    ["OBJLoader", SandboxOBJLoader],
+  ] as const) {
+    Object.defineProperty(runtimeTHREE, name, {
+      configurable: true,
+      enumerable: true,
+      value,
+    });
+  }
 
   function attributeValues(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, itemSize: number, label: string): number[] {
     if (attribute.itemSize < itemSize) {
@@ -1624,7 +1890,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
   try {
     const fn = new Function("mvm", "THREE", "scene", "console", PRELUDE + code) as (
       mvm: typeof api,
-      threeRuntime: typeof THREE,
+      threeRuntime: ScriptThreeRuntime,
       scene: THREE.Scene,
       console: typeof scriptConsole,
     ) => unknown;

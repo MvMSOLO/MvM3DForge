@@ -7,9 +7,13 @@ export function sampleTrack(track: AnimTrack, time: number): number[] | null {
   const last = keys[keys.length - 1];
   if (time >= last.time) return last.value.slice();
   let index = 0;
-  while (index < keys.length - 1 && keys[index + 1].time < time) index += 1;
+  while (index < keys.length - 1 && keys[index + 1].time <= time) index += 1;
   const a = keys[index];
   const b = keys[index + 1];
+  // A step track holds its current value until the next key rather than easing
+  // between values. Returning the lower key also makes behavior deterministic
+  // when a clip is sampled between frames at a non-60-Hz refresh rate.
+  if (track.interpolation === "step") return a.value.slice();
   const span = b.time - a.time || 1;
   let u = (time - a.time) / span;
   if (track.interpolation === "smooth") u = u * u * (3 - 2 * u);
