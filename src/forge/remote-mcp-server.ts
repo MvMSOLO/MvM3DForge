@@ -260,7 +260,7 @@ export function createPersistedMcpServer(
 
   register("create_project", "Create and persist a new 3D project from a supported starter template.", {
     name: z.string().trim().min(1).max(80).default("New 3D Scene"),
-    starterId: z.enum(["blank", "primitives", "pbr", "product", "animated"]).optional(),
+    starterId: z.enum(["blank", "primitives", "pbr", "product", "animated", "webgpu"]).optional(),
   }, "scene:write", async (args) => {
     let project: Project;
     if (args.starterId) {
