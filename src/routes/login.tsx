@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -39,6 +39,18 @@ function isMcpOAuthReturnPath(path: string): boolean {
 
 function LoginPage() {
   const { user, isPending } = useCurrentUserState();
+  const [sessionCheckTimedOut, setSessionCheckTimedOut] = useState(false);
+
+  // A slow/unavailable session endpoint must never leave OAuth login on a
+  // permanent spinner. Allow the real sign-in form to render after 4 seconds.
+  useEffect(() => {
+    if (!isPending) {
+      setSessionCheckTimedOut(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => setSessionCheckTimedOut(true), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [isPending]);
   const mcpOAuthConnect = isMcpOAuthReturnPath(getReturnPath());
   const [mode, setMode] = useState<FormMode>("signin");
   const [name, setName] = useState("");
@@ -137,7 +149,7 @@ function LoginPage() {
             </div>
           </div>
 
-          {isPending ? (
+          {isPending && !sessionCheckTimedOut ? (
             <div className="flex min-h-56 flex-col items-center justify-center gap-3 text-center">
               <LoaderCircle size={24} className="animate-spin text-[#83f0ce]" />
               <p className="text-sm text-[#a9b7c5]">Checking your session…</p>
@@ -190,6 +202,12 @@ function LoginPage() {
                   Create account
                 </button>
               </div>
+
+              {sessionCheckTimedOut && (
+                <p role="status" className="mb-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.05] px-3 py-2.5 text-xs leading-5 text-amber-100">
+                  Session check is taking longer than expected. You can still sign in below; after signing in, MVM3D will return to the pending AI connection.
+                </p>
+              )}
 
               <form onSubmit={(event) => void submit(event)} className="space-y-4">
                 {mode === "signup" && (
