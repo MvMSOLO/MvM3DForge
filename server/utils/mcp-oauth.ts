@@ -2,9 +2,26 @@ import { getHeader } from "h3";
 import type { H3Event } from "h3";
 import type { IncomingMessage } from "node:http";
 import { auth } from "@/lib/auth/server";
+import {
+  createMcpOAuthCode,
+  exchangeMcpOAuthCode,
+  issueMcpOAuthAccessToken,
+  registerMcpOAuthClient,
+} from "@/lib/mcp/oauth.server";
 import { MCP_OAUTH_SCOPES, isSafeOAuthRedirectUri, mcpPublicBaseUrl, mcpResourceUrl, normalizeOAuthScopes, resolveMcpOAuthClient } from "@/lib/mcp/oauth.server";
 
-export { MCP_OAUTH_SCOPES, isSafeOAuthRedirectUri, mcpPublicBaseUrl, mcpResourceUrl, normalizeOAuthScopes, resolveMcpOAuthClient };
+export {
+  MCP_OAUTH_SCOPES,
+  isSafeOAuthRedirectUri,
+  mcpPublicBaseUrl,
+  mcpResourceUrl,
+  normalizeOAuthScopes,
+  resolveMcpOAuthClient,
+  createMcpOAuthCode,
+  exchangeMcpOAuthCode,
+  issueMcpOAuthAccessToken,
+  registerMcpOAuthClient,
+};
 
 function incomingRequest(event: H3Event): IncomingMessage | undefined {
   // Nitro 3 / H3 v2 exposes native Node handles under event.runtime.node;
