@@ -50,6 +50,7 @@ type StudioRenderer = {
   toneMappingExposure: number;
   shadowMap: { enabled: boolean; type: number };
   init?: () => Promise<void>;
+  backend?: { isWebGPUBackend?: boolean };
 };
 
 export const Route = createFileRoute("/studio")({ component: Studio });
@@ -90,7 +91,8 @@ const integrationGroups = [
       ["Camera / Perspective / Orthographic", "PARTIAL", "Orbit viewport uses perspective; project camera schema supports both types."],
       ["Lights / Shadows / Ambient occlusion", "PARTIAL", "Multiple light types and shadows; no dedicated AO bake pipeline."],
       ["Renderer / WebGL", "LIVE", "Three.js WebGL renderer drives the viewport."],
-      ["WebGPU / GLSL / Shader editor", "ROADMAP", "Not yet a first-class editor or guaranteed runtime path."],
+      ["WebGPU renderer", "LIVE", "Three.js WebGPURenderer; verifies the actual WebGPU backend and falls back to MVM REGULAR when unavailable."],
+      ["GLSL / TSL / Shader editor", "ROADMAP", "No first-class visual shader editor yet; WebGPU custom shading should use Three.js TSL/node materials, not WebGL-only ShaderMaterial assumptions."],
       ["Bloom / Post-processing / Fog", "ROADMAP", "No full post-processing stack in the Studio viewport yet."],
       ["Instancing / LOD / Frustum culling", "ROADMAP", "No dedicated scene optimization manager yet."],
       ["Baking / Environment maps", "ROADMAP", "No integrated texture or lighting bake workflow yet."],
@@ -162,6 +164,10 @@ function Studio() {
     return window.localStorage.getItem("mvm3d.rendererMode") === "advanced" ? "advanced" : "regular";
   });
   const [rendererLabel, setRendererLabel] = useState("MVM REGULAR · WebGL");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("mvm3d.rendererMode", rendererMode);
+  }, [rendererMode]);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionsRef = useRef<Map<string, THREE.AnimationAction>>(new Map());
   const syncedClipRef = useRef<string | null>(null);
@@ -520,6 +526,7 @@ function Studio() {
       controls.minDistance = 1.5;
       controls.maxDistance = 35;
       if (rendererMode === "advanced") {
+        webGpuInitializationStarted = true;
         const gpuApi = (navigator as Navigator & {
           gpu?: { requestAdapter: () => Promise<unknown> };
         }).gpu;
@@ -541,6 +548,10 @@ function Studio() {
         }) => StudioRenderer;
         renderer = new AdvancedRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
         await renderer.init?.();
+        if (renderer.backend?.isWebGPUBackend !== true) {
+          throw new Error("Three.js did not activate the WebGPU backend (it may have selected its WebGL2 fallback). MVM ADVANCED requires the actual WebGPU backend.");
+        }
+        webGpuInitialized = true;
         if (disposed) {
           renderer.dispose();
           return;
@@ -568,13 +579,16 @@ function Studio() {
         pmremGenerator = new THREE.PMREMGenerator(renderer as unknown as THREE.WebGLRenderer);
         pmremGenerator.compileEquirectangularShader();
       } else {
-        const hasLights = renderScene.children.some((child) => child instanceof THREE.Light);
-        if (!hasLights) {
-          const fill = new THREE.HemisphereLight("#e4eeff", "#27313d", 1.8);
-          const key = new THREE.DirectionalLight("#fff1dc", 3.0);
+        const hasHemisphere = renderScene.children.some((child) => child instanceof THREE.HemisphereLight);
+        const hasDirectional = renderScene.children.some((child) => child instanceof THREE.DirectionalLight);
+        const defaultLights: THREE.Light[] = [];
+        if (!hasHemisphere) defaultLights.push(new THREE.HemisphereLight("#e4eeff", "#27313d", 1.35));
+        if (!hasDirectional) {
+          const key = new THREE.DirectionalLight("#fff1dc", 2.5);
           key.position.set(4, 7, 5);
-          renderScene.add(fill, key);
+          defaultLights.push(key);
         }
+        if (defaultLights.length) renderScene.add(...defaultLights);
       }
 
       const applyPresetEnvironment = () => {
@@ -682,8 +696,17 @@ function Studio() {
     })().catch((error: unknown) => {
       if (!disposed) {
         const detail = error instanceof Error ? error.message : "Could not render this scene.";
-        addLog(`[ERROR] Renderer: ${detail}`);
-        setMessage(detail);
+        if (rendererMode === "advanced" && webGpuInitializationStarted && !webGpuInitialized) {
+          const fallbackMessage = `MVM ADVANCED failed to initialize a real WebGPU backend. Switched to MVM REGULAR. Details: ${detail}`;
+          addLog(`[ERROR] WebGPU initialization: ${detail}`);
+          addLog("[WARN] Fell back to MVM REGULAR · WebGL.");
+          setRendererLabel("MVM REGULAR · WebGL");
+          setRendererMode("regular");
+          setMessage(fallbackMessage);
+        } else {
+          addLog(`[ERROR] Renderer: ${detail}`);
+          setMessage(detail);
+        }
         setActiveTab("console");
       }
     });
