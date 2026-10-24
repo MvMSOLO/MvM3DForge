@@ -72,8 +72,10 @@ The `create_primitive` tool supports box, sphere, cylinder, cone, torus, plane, 
 ## MVM REGULAR and MVM ADVANCED
 
 - **MVM REGULAR** uses the existing Three.js WebGL renderer and sandbox scene workflow.
-- **MVM ADVANCED** initializes Three.js `WebGPURenderer` when the browser exposes a WebGPU adapter. If WebGPU is not available, the Studio reports the issue and returns to MVM REGULAR. Renderer selection is stored locally on the current browser.
-- The script environment exposes core Three.js classes through `THREE`; the Studio also has a viewport, camera controls, GLB import/export, PBR materials, scene hierarchy, and animation playback. This is a browser-based 3D editor, not a promise of complete Blender/Unreal feature parity.
+- **MVM ADVANCED** initializes Three.js `WebGPURenderer` when the browser exposes a WebGPU adapter. It verifies the actual WebGPU backend, initializes the r186 renderer-agnostic PMREM pipeline, and only marks the mode ready after the first scene frame succeeds. If initialization or the first frame fails, it logs the reason and returns to MVM REGULAR. Renderer selection is stored locally on the current browser.
+- Environment presets plus HDR/EXR environment maps use image-based lighting in both renderer modes. The common PMREM implementation enables the metal/roughness PBR materials to reflect the environment in WebGPU rather than relying only on direct lights.
+- **Smoke test:** in Studio, create a project from the `MVM ADVANCED · WebGPU Diagnostic` starter, switch to MVM ADVANCED, then Run. Check metallic reflections, the procedural stripe texture, cyan emissive ring, and timeline animation. Confirm the console says the scene rendered with WebGPU; a scene appearing by itself does not prove backend identity.
+- The script environment exposes core Three.js classes through `THREE`; the Studio also has camera controls, GLB import/export, PBR materials, scene hierarchy, and animation playback. WebGPU does not support WebGL-only `ShaderMaterial` / `onBeforeCompile` workflows; use Three.js TSL/node materials for future custom WebGPU shaders. This is a browser-based 3D editor, not a promise of complete Blender/Unreal feature parity.
 
 ## Configure AI providers and select a model
 
