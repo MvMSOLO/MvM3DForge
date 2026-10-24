@@ -21,8 +21,8 @@ async function handleMcp(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
   if (!["GET", "POST", "DELETE"].includes(request.method)) return withCors(Response.json({ error: "Method not allowed." }, { status: 405 }));
   const authorization = request.headers.get("authorization") ?? "";
-  const keyMatch = /^Bearer\\s+(mvmf_live_[A-Za-z0-9_-]{32,160})$/.exec(authorization);
-  const oauthMatch = /^Bearer\\s+(mvm3d_oauth_[A-Za-z0-9._-]{80,4096})$/.exec(authorization);
+  const keyMatch = /^Bearer\s+(mvmf_live_[A-Za-z0-9_-]{32,160})$/.exec(authorization);
+  const oauthMatch = /^Bearer\s+(mvm3d_oauth_[A-Za-z0-9._-]{80,4096})$/.exec(authorization);
   let userId = "";
   let scopes: string[] = [];
 
