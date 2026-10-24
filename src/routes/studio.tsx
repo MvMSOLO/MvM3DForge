@@ -38,6 +38,19 @@ import { McpApiKeysPanel } from "@/components/McpApiKeysPanel";
 import { CloudProjectsPanel } from "@/components/CloudProjectsPanel";
 import type { Project } from "@/forge/types.ts";
 
+type StudioRenderer = {
+  domElement: HTMLCanvasElement;
+  setPixelRatio(value: number): void;
+  setSize(width: number, height: number, updateStyle?: boolean): void;
+  render(scene: THREE.Scene, camera: THREE.Camera): void;
+  dispose(): void;
+  outputColorSpace: THREE.ColorSpace;
+  toneMapping: THREE.ToneMapping;
+  toneMappingExposure: number;
+  shadowMap: { enabled: boolean; type: number };
+  init?: () => Promise<void>;
+};
+
 export const Route = createFileRoute("/studio")({ component: Studio });
 
 const AI_CONTEXT_PROMPT = `You are helping me build a real 3D scene in MvM 3D Forge (MVM 3D FORGE), a browser-based TypeScript/React + Three.js scene authoring studio.
@@ -143,6 +156,11 @@ function Studio() {
   const { undo, redo, canUndo, canRedo } = useHistoryStore();
 
   const [copied, setCopied] = useState(false);
+  const [rendererMode, setRendererMode] = useState<"regular" | "advanced">(() => {
+    if (typeof window === "undefined") return "regular";
+    return window.localStorage.getItem("mvm3d.rendererMode") === "advanced" ? "advanced" : "regular";
+  });
+  const [rendererLabel, setRendererLabel] = useState("MVM REGULAR · WebGL");
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionsRef = useRef<Map<string, THREE.AnimationAction>>(new Map());
   const syncedClipRef = useRef<string | null>(null);
@@ -448,7 +466,7 @@ function Studio() {
     let disposed = false;
     let frame = 0;
     let controls: OrbitControls | undefined;
-    let renderer: THREE.WebGLRenderer | undefined;
+    let renderer: StudioRenderer | undefined;
     let renderScene: THREE.Scene | undefined;
     let camera: THREE.PerspectiveCamera | undefined;
     let resizeObserver: ResizeObserver | undefined;
@@ -500,18 +518,66 @@ function Studio() {
       controls.dampingFactor = 0.07;
       controls.minDistance = 1.5;
       controls.maxDistance = 35;
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+      if (rendererMode === "advanced") {
+        const gpuApi = (navigator as Navigator & {
+          gpu?: { requestAdapter: () => Promise<unknown> };
+        }).gpu;
+        const adapter = await gpuApi?.requestAdapter();
+        if (!adapter) {
+          const detail = "MVM ADVANCED cannot start because this browser/device did not provide a WebGPU adapter. MVM REGULAR has been selected.";
+          addLog(`[ERROR] WebGPU: ${detail}`);
+          setMessage(detail);
+          setActiveTab("console");
+          setRendererLabel("MVM REGULAR · WebGL");
+          setRendererMode("regular");
+          return;
+        }
+        const { WebGPURenderer } = await import("three/webgpu");
+        const AdvancedRenderer = WebGPURenderer as unknown as new (options: {
+          antialias: boolean;
+          alpha: boolean;
+          powerPreference: string;
+        }) => StudioRenderer;
+        renderer = new AdvancedRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+        await renderer.init?.();
+        if (disposed) {
+          renderer.dispose();
+          return;
+        }
+        setRendererLabel("MVM ADVANCED · WebGPU");
+        addLog("[INFO] MVM ADVANCED WebGPU renderer initialized.");
+      } else {
+        renderer = new THREE.WebGLRenderer({
+          antialias: true,
+          alpha: false,
+          powerPreference: "high-performance",
+        }) as unknown as StudioRenderer;
+        setRendererLabel("MVM REGULAR · WebGL");
+      }
+
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = project.scene.exposure || 1;
 
-      // Image-based lighting: prefiltered RoomEnvironment by default, optional HDR/EXR.
-      pmremGenerator = new THREE.PMREMGenerator(renderer);
-      pmremGenerator.compileEquirectangularShader();
+      // PMREM is WebGL-specific in the current Three.js API. The advanced mode
+      // intentionally uses direct scene lighting rather than trying to reuse a
+      // WebGL render target in a WebGPU backend.
+      if (rendererMode === "regular") {
+        pmremGenerator = new THREE.PMREMGenerator(renderer as unknown as THREE.WebGLRenderer);
+        pmremGenerator.compileEquirectangularShader();
+      } else {
+        const hasLights = renderScene.children.some((child) => child instanceof THREE.Light);
+        if (!hasLights) {
+          const fill = new THREE.HemisphereLight("#e4eeff", "#27313d", 1.8);
+          const key = new THREE.DirectionalLight("#fff1dc", 3.0);
+          key.position.set(4, 7, 5);
+          renderScene.add(fill, key);
+        }
+      }
 
       const applyPresetEnvironment = () => {
-        if (disposed || !renderScene || !pmremGenerator) return;
+        if (disposed || !renderScene || !pmremGenerator || rendererMode !== "regular") return;
         const preset = project.scene.environment ?? "studio";
         if (preset === "none") {
           renderScene.environment = null;
@@ -543,7 +609,10 @@ function Studio() {
       };
 
       const customUrl = project.scene.environmentUrl;
-      if (customUrl) {
+      if (rendererMode === "advanced") {
+        // WebGPU mode keeps the PBR scene and lights but skips WebGL-only PMREM targets.
+        renderScene.background = new THREE.Color(project.scene.background || "#10161e");
+      } else if (customUrl) {
         const urlPath = customUrl.split(/[?#]/, 1)[0] || customUrl;
         const onEnvironmentLoaded = (texture: THREE.Texture) => {
           if (disposed || !pmremGenerator || !renderScene) {
@@ -638,7 +707,7 @@ function Studio() {
         }
       });
     };
-  }, [project, viewMode]);
+  }, [project, viewMode, rendererMode]);
 
   function saveProject() {
     if (!project) return;
@@ -910,7 +979,30 @@ function Studio() {
                 Drag to orbit · pinch/scroll to zoom · right-drag to pan
               </div>
             </div>
-            <div className="flex rounded-lg border border-white/10 p-1">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex rounded-lg border border-white/10 p-1" role="group" aria-label="Renderer mode">
+                {(["regular", "advanced"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      setRendererMode(mode);
+                      setRendererLabel(mode === "advanced" ? "MVM ADVANCED · initializing…" : "MVM REGULAR · WebGL");
+                      setMessage(mode === "advanced" ? "Initializing MVM ADVANCED WebGPU renderer…" : "MVM REGULAR renderer selected.");
+                    }}
+                    aria-pressed={rendererMode === mode}
+                    className={`rounded-md px-2 py-1.5 text-[10px] font-semibold cursor-pointer ${
+                      rendererMode === mode
+                        ? "bg-[#83f0ce]/15 text-[#83f0ce]"
+                        : "text-slate-500 hover:text-slate-200"
+                    }`}
+                  >
+                    {mode === "regular" ? "MVM REGULAR" : "MVM ADVANCED"}
+                  </button>
+                ))}
+              </div>
+              <span className="hidden text-[10px] text-slate-500 xl:inline" title="Active renderer">{rendererLabel}</span>
+              <div className="flex rounded-lg border border-white/10 p-1" role="group" aria-label="Viewport shading">
               {(["material", "solid", "wireframe"] as const).map((mode) => (
                 <button
                   key={mode}
@@ -924,6 +1016,7 @@ function Studio() {
                   {mode}
                 </button>
               ))}
+              </div>
             </div>
           </div>
 
