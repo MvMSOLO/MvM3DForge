@@ -387,7 +387,20 @@ export function createPersistedMcpServer(
         keyframes: ordered.map((key) => ({ time: key.time, value: [...key.value] })),
       };
     });
-    const clip = {
+    const clip: {
+      id: string;
+      name: string;
+      duration: number;
+      loop: boolean;
+      tracks: Array<{
+        id: string;
+        objectId: string;
+        property: "position" | "rotation" | "scale" | "quaternion";
+        interpolation: "linear" | "smooth" | "step";
+        keyframes: Array<{ time: number; value: number[] }>;
+      }>;
+      source: "user";
+    } = {
       id: randomUUID(),
       name: args.name,
       duration: args.duration,
@@ -401,7 +414,7 @@ export function createPersistedMcpServer(
       projectId: project.id,
       createdClip: clip,
       trackCount: clip.tracks.length,
-      keyframeCount: clip.tracks.reduce((sum, track) => sum + track.keyframes.length, 0),
+      keyframeCount: clip.tracks.reduce((sum: number, track) => sum + track.keyframes.length, 0),
     };
   });
 
