@@ -419,6 +419,7 @@ test("custom environment URL rejects unsupported protocols and file types", asyn
 
 test("GLTFLoader and OBJLoader parse assets inside the script runtime while remote loads stay blocked", async () => {
   const result = await executeUserCode(`
+    return (async () => {
     const objLoader = new THREE.OBJLoader();
     const obj = objLoader.parse([
       "o Runtime_OBJ_Test",
@@ -459,6 +460,7 @@ test("GLTFLoader and OBJLoader parse assets inside the script runtime while remo
       )
     ]);
     console.log("External-load guard", externalLoadErrors);
+    })();
   `);
 
   assert.equal(result.ok, true, result.ok ? "" : result.error.message);
