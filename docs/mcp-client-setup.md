@@ -77,6 +77,35 @@ The `create_primitive` tool supports box, sphere, cylinder, cone, torus, plane, 
 - **Smoke test:** in Studio, create a project from the `MVM ADVANCED · WebGPU Diagnostic` starter, switch to MVM ADVANCED, then Run. Check metallic reflections, the procedural stripe texture, cyan emissive ring, and timeline animation. Confirm the console says the scene rendered with WebGPU; a scene appearing by itself does not prove backend identity.
 - The script environment exposes core Three.js classes through `THREE`; the Studio also has camera controls, GLB import/export, PBR materials, scene hierarchy, and animation playback. WebGPU does not support WebGL-only `ShaderMaterial` / `onBeforeCompile` workflows; use Three.js TSL/node materials for future custom WebGPU shaders. This is a browser-based 3D editor, not a promise of complete Blender/Unreal feature parity.
 
+## Script loaders and imported animation clips
+
+The sandbox exposes the Three.js `GLTFLoader`, `OBJLoader`, `TextureLoader`, `CubeTextureLoader`, `ImageBitmapLoader`, `FileLoader` and related core loader APIs. URL-based loads are restricted to same-origin static paths under `/assets/`, `/models/`, or `/textures/`. `data:` and `blob:` sources are allowed for in-memory data; arbitrary external HTTPS URLs are blocked by design. Import files into MVM3D or add them to the app's public asset folders before loading.
+
+A basic GLB/OBJ workflow:
+
+```javascript
+return (async () => {
+  const gltf = await new THREE.GLTFLoader().loadAsync("/assets/models/robot.glb");
+  scene.add(gltf.scene);
+
+  for (const sourceClip of gltf.animations) {
+    const imported = mvm.animation.importThreeClip(sourceClip, gltf.scene);
+    console.log("Imported clip", imported.name, imported.trackCount);
+  }
+
+  const firstClip = gltf.animations[0];
+  if (firstClip) {
+    const saved = mvm.scene.list();
+    const clip = mvm.animation.importThreeClip(firstClip, gltf.scene);
+    mvm.animation.play(clip.id);
+  }
+})();
+```
+
+`mvm.animation.importThreeClip(clip, root)` currently converts rigid-object `position`, `rotation`, `scale`, and `quaternion` tracks whose target object names are unique under the specified root. Rotation values are converted from radians to MVM3D's degree-based rotation convention. Unsupported tracks are skipped with diagnostic warnings: skin deformation, morph targets, material/camera/light tracks and cubic-spline animation are not fully persisted. The base mesh geometry can still be imported, but its skeleton deformation is not retained as a fully rigged character.
+
+For a plain OBJ asset, use `new THREE.OBJLoader().loadAsync("/assets/models/part.obj")` then add the returned object to `scene`. To parse in-memory OBJ text, use `new THREE.OBJLoader().parse(objSourceText)`.
+
 ## Configure AI providers and select a model
 
 In **Studio → Integrations → MVM AI Workbench**, connect your own provider API key. The application tests the key by querying the provider's model endpoint and shows the available chat models. Select a model and the choice is saved per user. Supported providers:
