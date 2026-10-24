@@ -2,7 +2,7 @@ name: Forge bridge regression
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/mvm3d-advanced-webgpu-mcp]
   pull_request:
     branches: [main]
 
@@ -30,7 +30,7 @@ jobs:
         run: npm run typecheck
 
       - name: Run MCP, auth and scene regression tests
-        run: node --experimental-strip-types --test src/lib/auth/mcp-auth-policy.test.ts src/lib/mcp/api-keys.test.ts src/forge/sdk/execute.test.ts src/forge/ai-mcp.test.ts src/forge/export-glb.test.ts src/forge/remote-mcp-server.test.ts
+        run: node --experimental-strip-types --test src/lib/auth/mcp-auth-policy.test.ts src/lib/mcp/api-keys.test.ts src/forge/sdk/execute.test.ts src/forge/animation.test.ts src/forge/ai-mcp.test.ts src/forge/export-glb.test.ts src/forge/remote-mcp-server.test.ts
 
       - name: Lint project
         run: npm run lint
