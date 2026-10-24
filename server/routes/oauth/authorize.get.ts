@@ -1,15 +1,15 @@
 import { defineEventHandler, getRequestURL, sendRedirect, setHeader, setResponseStatus } from "h3";
+import type { H3Event } from "h3";
 import {
   createAuthorizationHtml,
   getMcpOAuthSession,
   getRegisteredClient,
   MCP_OAUTH_SCOPES,
-  mcpPublicBaseUrl,
   mcpResourceUrl,
   normalizeOAuthScopes,
 } from "../../utils/mcp-oauth.ts";
 
-function badRequest(event: Parameters<Parameters<typeof defineEventHandler>[0]>[0], message: string) {
+function badRequest(event: H3Event, message: string) {
   setResponseStatus(event, 400);
   setHeader(event, "Cache-Control", "no-store");
   return { error: "invalid_request", error_description: message };
@@ -40,7 +40,6 @@ export default defineEventHandler(async (event) => {
   if (resource && resource !== mcpResourceUrl()) return badRequest(event, "The requested resource does not match this MCP server.");
   const scopes = normalizeOAuthScopes(query.get("scope") || client.scope || MCP_OAUTH_SCOPES.join(" "));
   if (!scopes) return badRequest(event, "The requested OAuth scope contains an unsupported permission.");
-  const base = mcpPublicBaseUrl();
   const current = `${url.pathname}${url.search}`;
   const session = await getMcpOAuthSession(event);
   if (!session) {
