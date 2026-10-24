@@ -22,11 +22,11 @@ test("provider model parser accepts list and OpenAI-compatible data response sha
   const direct = [
     { id: "gpt-4.1", display_name: "GPT 4.1" },
     { id: "text-embedding-3-small", display_name: "Embedding model" },
-    { id: "claude-sonnet-4", displayName: "Claude Sonnet 4" },
+    { id: "gpt-4o-mini", displayName: "GPT-4o mini" },
   ];
   const models = parseAiProviderModels("openai", direct);
   assert.deepEqual(models, [
-    { id: "claude-sonnet-4", name: "Claude Sonnet 4" },
+    { id: "gpt-4o-mini", name: "GPT-4o mini" },
     { id: "gpt-4.1", name: "GPT 4.1" },
   ]);
   assert.deepEqual(parseAiProviderModels("groq", { data: [{ id: "llama-3.3-70b-versatile" }] }), [
