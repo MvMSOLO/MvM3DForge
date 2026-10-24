@@ -22,6 +22,10 @@ test("provider model parser accepts list and OpenAI-compatible data response sha
   const direct = [
     { id: "gpt-4.1", display_name: "GPT 4.1" },
     { id: "text-embedding-3-small", display_name: "Embedding model" },
+    { id: "dall-e-3", display_name: "DALL·E image model" },
+    { id: "gpt-image-1", display_name: "GPT Image" },
+    { id: "gpt-4o-audio-preview", display_name: "GPT Audio" },
+    { id: "sora-2", display_name: "Sora video model" },
     { id: "gpt-4o-mini", displayName: "GPT-4o mini" },
   ];
   const models = parseAiProviderModels("openai", direct);
