@@ -43,6 +43,15 @@ export default defineEventHandler(async (event) => {
   if (!scopes || !registeredScopes || scopes.some((scope) => !registeredScopes.includes(scope))) {
     return badRequest(event, "The requested OAuth scope is invalid or exceeds this client's registered permissions.");
   }
+  // Make the account step visible before showing OAuth permissions.
+  // This marker prevents a login -> authorize redirect loop.
+  if (query.get("mvm3d_login_gate") !== "1") {
+    const loginParams = new URLSearchParams(query);
+    loginParams.set("mvm3d_login_gate", "1");
+    const loginReturn = `${url.pathname}?${loginParams.toString()}`;
+    return sendRedirect(event, `/login?next=${encodeURIComponent(loginReturn)}`, 302);
+  }
+
   const current = `${url.pathname}${url.search}`;
   const session = await getMcpOAuthSession(event);
   if (!session) {
