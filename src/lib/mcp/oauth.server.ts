@@ -26,6 +26,11 @@ const ACCESS_TOKEN_SECONDS = 60 * 60;
 export const MCP_OAUTH_REFRESH_TOKEN_SECONDS = 30 * 24 * 60 * 60;
 const REFRESH_TOKEN_LIFETIME_MS = MCP_OAUTH_REFRESH_TOKEN_SECONDS * 1000;
 
+// Persist only SHA-256 digests for one-time codes and refresh tokens.
+function digest(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
 export async function resolveMcpOAuthClient(clientId: string): Promise<OAuthClientMetadata | null> {
   if (!clientId || clientId.length > 256 || clientId.startsWith("https://") || clientId.startsWith("http://")) return null;
   try {

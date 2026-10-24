@@ -86,7 +86,9 @@ export default defineEventHandler(async (event) => {
     callback.searchParams.set("state", state);
     callback.searchParams.set("iss", mcpPublicBaseUrl());
     return sendRedirect(event, callback.toString(), 302);
-  } catch {
+  } catch (error) {
+    // Keep the browser response generic, but make the real server-side cause observable.
+    console.error("[mcp-oauth] Authorization-code issuance failed:", error instanceof Error ? error.stack || error.message : String(error));
     return errorPage(event, 503, "MVM3D could not issue an authorization code. Please retry.");
   }
 });
