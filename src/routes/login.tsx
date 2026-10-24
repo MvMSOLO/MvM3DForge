@@ -31,8 +31,15 @@ function getReturnPath(): string {
   }
 }
 
+function isMcpOAuthReturnPath(path: string): boolean {
+  const separator = path.indexOf("?");
+  if (separator < 0 || path.slice(0, separator) !== "/oauth/authorize") return false;
+  return new URLSearchParams(path.slice(separator + 1).split("#")[0]).get("mvm3d_login_gate") === "1";
+}
+
 function LoginPage() {
   const { user, isPending } = useCurrentUserState();
+  const mcpOAuthConnect = isMcpOAuthReturnPath(getReturnPath());
   const [mode, setMode] = useState<FormMode>("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -140,10 +147,14 @@ function LoginPage() {
               <span className="mx-auto grid size-12 place-items-center rounded-full border border-[#83f0ce]/25 bg-[#83f0ce]/[0.08] text-[#83f0ce]">
                 <CheckCircle2 size={24} />
               </span>
-              <h1 className="mt-4 text-2xl font-semibold tracking-tight">You’re signed in</h1>
-              <p className="mt-2 text-sm text-[#95a5b3]">{user.primaryEmail ?? user.displayName ?? "Your account"} is ready to use.</p>
+              <h1 className="mt-4 text-2xl font-semibold tracking-tight">{mcpOAuthConnect ? "Confirm your MVM3D account." : "You’re signed in"}</h1>
+              <p className="mt-2 text-sm text-[#95a5b3]">
+                {mcpOAuthConnect
+                  ? `${user.primaryEmail ?? user.displayName ?? "Your account"} is signed in. Continue to review and approve the AI client’s requested permissions.`
+                  : `${user.primaryEmail ?? user.displayName ?? "Your account"} is ready to use.`}
+              </p>
               <a href={getReturnPath()} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-[#83f0ce] px-4 py-3 text-sm font-semibold text-[#071511] transition hover:bg-[#a1f7dc]">
-                Continue to Studio
+                {mcpOAuthConnect ? "Continue to permission review" : "Continue to Studio"}
               </a>
             </div>
           ) : !authEnabled ? (
@@ -154,14 +165,20 @@ function LoginPage() {
           ) : (
             <>
               <div className="mb-6">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#83f0ce]">Secure account access</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#83f0ce]">
+                  {mcpOAuthConnect ? "MVM3D CONNECTION · SIGN IN FIRST" : "Secure account access"}
+                </p>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-                  {mode === "signin" ? "Welcome back." : "Create your account."}
+                  {mcpOAuthConnect
+                    ? mode === "signin" ? "Sign in to connect MVM3D." : "Create an account to connect."
+                    : mode === "signin" ? "Welcome back." : "Create your account."}
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-[#95a5b3]">
-                  {mode === "signin"
-                    ? "Sign in to open your private 3D projects and approve secure AI-client connections."
-                    : "One account for your 3D projects and secure OAuth connections."}
+                  {mcpOAuthConnect
+                    ? "Sign in or create an account first. On the next screen, you’ll review each permission before the AI client can access your workspace."
+                    : mode === "signin"
+                      ? "Sign in to open your private 3D projects and approve secure AI-client connections."
+                      : "One account for your 3D projects and secure OAuth connections."}
                 </p>
               </div>
 
