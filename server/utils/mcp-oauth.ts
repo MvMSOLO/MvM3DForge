@@ -6,13 +6,6 @@ import { MCP_OAUTH_SCOPES, isSafeOAuthRedirectUri, mcpPublicBaseUrl, mcpResource
 
 export { MCP_OAUTH_SCOPES, isSafeOAuthRedirectUri, mcpPublicBaseUrl, mcpResourceUrl, normalizeOAuthScopes, resolveMcpOAuthClient };
 
-export function oauthResponseHeaders(event?: H3Event): void {
-  if (!event) return;
-  event.node.res.setHeader("Cache-Control", "no-store");
-  event.node.res.setHeader("Pragma", "no-cache");
-  event.node.res.setHeader("X-Content-Type-Options", "nosniff");
-}
-
 function incomingRequest(event: H3Event): IncomingMessage | undefined {
   // Nitro 3 / H3 v2 exposes native Node handles under event.runtime.node;
   // older H3 adapters expose them at event.node.
