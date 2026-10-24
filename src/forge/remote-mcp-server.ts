@@ -120,7 +120,7 @@ function ensureServerFileReader(): void {
   root.FileReader = ServerFileReader as unknown as typeof FileReader;
 }
 
-function primitiveGeometry(kind: "box" | "sphere" | "cylinder" | "cone" | "torus" | "plane"): GeometrySpec {
+function primitiveGeometry(kind: "box" | "sphere" | "cylinder" | "cone" | "torus" | "plane" | "capsule"): GeometrySpec {
   switch (kind) {
     case "box":
       return { kind: "box", width: 1, height: 1, depth: 1, widthSegments: 1, heightSegments: 1, depthSegments: 1 };
@@ -134,6 +134,8 @@ function primitiveGeometry(kind: "box" | "sphere" | "cylinder" | "cone" | "torus
       return { kind: "torus", radius: 0.5, tube: 0.18, radialSegments: 20, tubularSegments: 40 };
     case "plane":
       return { kind: "plane", width: 1, height: 1, widthSegments: 1, heightSegments: 1 };
+    case "capsule":
+      return { kind: "capsule", radius: 0.25, length: 0.8, capSegments: 8, radialSegments: 16 };
   }
 }
 
@@ -314,7 +316,7 @@ export function createPersistedMcpServer(
 
   register("create_primitive", "Create and persist a real mesh primitive with a PBR material.", {
     projectId: z.string().min(1).optional(),
-    kind: z.enum(["box", "sphere", "cylinder", "cone", "torus", "plane"]),
+    kind: z.enum(["box", "sphere", "cylinder", "cone", "torus", "plane", "capsule"]),
     name: z.string().trim().min(1).max(120).optional(),
     position: z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]).default([0, 0, 0]),
     rotation: z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]).default([0, 0, 0]),
@@ -340,6 +342,67 @@ export function createPersistedMcpServer(
     project.objects.push(node);
     await persist(project);
     return { projectId: project.id, createdObject: node };
+  });
+
+  register("create_animation_clip", "Create and persist an editable animation clip with position, rotation, scale or quaternion keyframes.", {
+    projectId: z.string().min(1).optional(),
+    name: z.string().trim().min(1).max(100),
+    duration: z.number().finite().min(0.05).max(600),
+    loop: z.boolean().default(true),
+    tracks: z.array(z.object({
+      objectId: z.string().min(1).max(120),
+      property: z.enum(["position", "rotation", "scale", "quaternion"]),
+      interpolation: z.enum(["linear", "smooth", "step"]).default("linear"),
+      keyframes: z.array(z.object({
+        time: z.number().finite().min(0).max(600),
+        value: z.array(z.number().finite()).min(3).max(4),
+      })).min(2).max(100),
+    })).min(1).max(64),
+  }, "scene:write", async (args) => {
+    const project = await getWritableProject(args.projectId);
+    const validatedTracks = args.tracks.map((track: {
+      objectId: string;
+      property: "position" | "rotation" | "scale" | "quaternion";
+      interpolation: "linear" | "smooth" | "step";
+      keyframes: { time: number; value: number[] }[];
+    }) => {
+      const node = project.objects.find((item) => item.id === track.objectId || item.name === track.objectId);
+      if (!node) throw new Error(`Animation target '${track.objectId}' was not found in this scene.`);
+      const expectedSize = track.property === "quaternion" ? 4 : 3;
+      if (track.keyframes.some((key) => key.value.length !== expectedSize)) {
+        throw new Error(`Track '${track.objectId}.${track.property}' requires ${expectedSize} values per keyframe.`);
+      }
+      if (track.keyframes.some((key) => key.time > args.duration)) {
+        throw new Error(`Every keyframe must be within the clip duration (${args.duration}s).`);
+      }
+      const ordered = [...track.keyframes].sort((a, b) => a.time - b.time);
+      if (ordered[0].time === ordered[ordered.length - 1].time) {
+        throw new Error(`Track '${track.objectId}.${track.property}' must span at least two different times.`);
+      }
+      return {
+        id: randomUUID(),
+        objectId: node.id,
+        property: track.property,
+        interpolation: track.interpolation,
+        keyframes: ordered.map((key) => ({ time: key.time, value: [...key.value] })),
+      };
+    });
+    const clip = {
+      id: randomUUID(),
+      name: args.name,
+      duration: args.duration,
+      loop: args.loop,
+      tracks: validatedTracks,
+      source: "user" as const,
+    };
+    project.clips = [...project.clips.filter((existing) => existing.id !== clip.id), clip];
+    await persist(project);
+    return {
+      projectId: project.id,
+      createdClip: clip,
+      trackCount: clip.tracks.length,
+      keyframeCount: clip.tracks.reduce((sum, track) => sum + track.keyframes.length, 0),
+    };
   });
 
   register("update_object", "Update a saved object's name, transform, visibility or PBR material.", {
