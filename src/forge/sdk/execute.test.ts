@@ -416,7 +416,7 @@ test("runtime budget profile raises the actual object budget within hard ceiling
     '  const mesh = mvm.geometry.box({ name: "Budget_Mesh_" + i });',
     '  mvm.scene.add(mesh);',
     '}',
-  ].join("\\n"));
+  ].join("\n"));
   assert.equal(result.ok, true, result.ok ? "" : result.error.message);
   if (!result.ok) return;
   assert.equal(result.patch.objects.length, 405);
@@ -467,7 +467,7 @@ test("GLTF/OBJ and core asset loaders parse local assets while external loads st
       "v 1 0 0",
       "v 0 1 0",
       "f 1 2 3"
-    ].join("\n"));
+    ].join("\\n"));
     obj.name = "Parsed OBJ Root";
     scene.add(obj);
 
