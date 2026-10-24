@@ -416,3 +416,57 @@ test("custom environment URL rejects unsupported protocols and file types", asyn
   assert.equal(png.ok, false);
   if (!png.ok) assert.match(png.error.message, /environment URL/i);
 });
+
+test("GLTFLoader and OBJLoader parse assets inside the script runtime while remote loads stay blocked", async () => {
+  const result = await executeUserCode(`
+    const objLoader = new THREE.OBJLoader();
+    const obj = objLoader.parse([
+      "o Runtime_OBJ_Test",
+      "v 0 0 0",
+      "v 1 0 0",
+      "v 0 1 0",
+      "f 1 2 3"
+    ].join("\\n"));
+    obj.name = "Parsed OBJ Root";
+    scene.add(obj);
+
+    const gltfPayload = JSON.stringify({
+      asset: { version: "2.0", generator: "MVM3D loader regression test" },
+      scenes: [{ nodes: [] }],
+      scene: 0
+    });
+    const gltf = await new Promise((resolve, reject) => {
+      new THREE.GLTFLoader().parse(gltfPayload, "", resolve, reject);
+    });
+    console.log("GLTF parse completed", Boolean(gltf.scene));
+
+    const externalLoadErrors = await Promise.all([
+      new THREE.GLTFLoader().loadAsync("https://example.com/model.glb").then(
+        () => "unexpected-success",
+        (error) => String(error?.message || error)
+      ),
+      new THREE.OBJLoader().loadAsync("https://example.com/model.obj").then(
+        () => "unexpected-success",
+        (error) => String(error?.message || error)
+      ),
+      new THREE.TextureLoader().loadAsync("https://example.com/image.png").then(
+        () => "unexpected-success",
+        (error) => String(error?.message || error)
+      ),
+      new THREE.FileLoader().loadAsync("https://example.com/private-data").then(
+        () => "unexpected-success",
+        (error) => String(error?.message || error)
+      )
+    ]);
+    console.log("External-load guard", externalLoadErrors);
+  `);
+
+  assert.equal(result.ok, true, result.ok ? "" : result.error.message);
+  if (!result.ok) return;
+  assert.ok(result.patch.objects.some((node) => node.name === "Runtime_OBJ_Test" && node.type === "mesh"));
+  assert.match(result.logs.map((entry) => entry.message).join("\\n"), /GLTF parse completed true/);
+  const log = result.logs.find((entry) => entry.message.includes("External-load guard"));
+  assert.ok(log, "sandbox loader guard should be logged");
+  assert.match(log.message, /External asset URLs are blocked|Sandbox loaders can only use data:/);
+});
+
