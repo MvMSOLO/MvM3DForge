@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import PMREMGenerator from "three/src/renderers/common/extras/PMREMGenerator.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
@@ -479,8 +480,8 @@ function Studio() {
     let resizeObserver: ResizeObserver | undefined;
     let mixer: THREE.AnimationMixer | undefined;
     let clock: THREE.Clock | undefined;
-    let pmremGenerator: THREE.PMREMGenerator | undefined;
-    let environmentTarget: THREE.WebGLRenderTarget | undefined;
+    let pmremGenerator: InstanceType<typeof PMREMGenerator> | undefined;
+    let environmentTarget: THREE.RenderTarget | undefined;
     let sourceEnvironmentTexture: THREE.Texture | undefined;
     let webGpuInitializationStarted = false;
     let webGpuInitialized = false;
@@ -574,7 +575,7 @@ function Studio() {
 
       // Three.js r186's common PMREMGenerator uses the active Renderer backend,
       // including WebGPU. Initialize it only after the renderer has initialized.
-      pmremGenerator = new THREE.PMREMGenerator(renderer as unknown as THREE.WebGLRenderer);
+      pmremGenerator = new PMREMGenerator(renderer as unknown as ConstructorParameters<typeof PMREMGenerator>[0]);
       await pmremGenerator.compileEquirectangularShader();
 
       if (rendererMode === "advanced") {
