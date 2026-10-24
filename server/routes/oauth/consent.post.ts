@@ -6,6 +6,7 @@ import {
   getRegisteredClient,
   isSafeOAuthRedirectUri,
   isSameOriginConsentRequest,
+  mcpPublicBaseUrl,
   mcpResourceUrl,
   normalizeOAuthScopes,
   readFormBody,
@@ -51,6 +52,7 @@ export default defineEventHandler(async (event) => {
     const callback = new URL(redirectUri);
     callback.searchParams.set("error", "access_denied");
     callback.searchParams.set("state", state);
+    callback.searchParams.set("iss", mcpPublicBaseUrl());
     return sendRedirect(event, callback.toString(), 302);
   }
 
@@ -75,6 +77,7 @@ export default defineEventHandler(async (event) => {
     const callback = new URL(redirectUri);
     callback.searchParams.set("code", code);
     callback.searchParams.set("state", state);
+    callback.searchParams.set("iss", mcpPublicBaseUrl());
     return sendRedirect(event, callback.toString(), 302);
   } catch {
     return errorPage(event, 503, "MVM3D could not issue an authorization code. Please retry.");
