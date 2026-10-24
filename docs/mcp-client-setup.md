@@ -2,12 +2,12 @@
 
 **MCP endpoint:** `https://mvm3d.vercel.app/mcp`  
 **Transport:** MCP Streamable HTTP  
-**Primary authentication:** OAuth 2.1 authorization code flow with PKCE (S256)  
-**Compatibility authentication:** user-scoped MVM3D API key as a Bearer token
+**Primary authentication:** OAuth 2.1 authorization code flow with PKCE (S256), dynamic client registration, and optional rotating refresh tokens  
+**No pre-created MVM3D API key is required for compatible MCP clients.**
 
 ## Connect ChatGPT using only the endpoint URL
 
-After this branch is deployed to the production project:
+When this branch is deployed to the production project:
 
 1. In ChatGPT, add a custom MCP connector and enter `https://mvm3d.vercel.app/mcp`.
 2. Select **OAuth** as the authentication method. Do not paste a static MVM3D API key into the OAuth form.
@@ -24,31 +24,28 @@ The MCP endpoint returns a `401` `WWW-Authenticate` challenge that identifies th
 
 If ChatGPT reports that it cannot discover OAuth settings, first confirm these metadata URLs return JSON on the deployed production domain. If the endpoint returns `503`, check the persistent database and deployment configuration rather than switching to unauthenticated writes.
 
-## Compatibility: create an API key for other MCP clients
+## No pre-created API key required
 
-For clients that require a manually configured Bearer header:
+For ChatGPT, Claude, and compatible remote MCP clients, users do not need to open Studio, create an MVM3D API key, or paste a secret into the connector. The client discovers OAuth metadata from the MCP endpoint's 401 challenge, registers a public OAuth client automatically, then opens the MVM3D sign-in and consent flow.
 
-1. Sign in at [MVM3D Studio](https://mvm3d.vercel.app/studio) and open **Integrations → Remote MCP API keys**.
-2. Enter a recognizable name, select the minimum required scopes, and set an expiry.
-3. Create the key and copy the secret immediately. It is displayed only once; storage keeps a digest, not the original secret.
-4. Revoke it when it is no longer needed.
+### ChatGPT
 
-Example for clients that support server headers and their own secret interpolation:
+1. Add a custom MCP connector and enter https://mvm3d.vercel.app/mcp.
+2. Choose OAuth. If asked how the OAuth client should be registered, choose automatic or dynamic client registration.
+3. When MVM3D opens in a browser, sign in or create an account, review the requested permission checkboxes, and press Connect MVM3D.
+4. Return to ChatGPT and test a read-only tool such as list_projects before asking it to edit scenes.
 
-```json
-{
-  "mcpServers": {
-    "mvm3d": {
-      "url": "https://mvm3d.vercel.app/mcp",
-      "headers": {
-        "Authorization": "Bearer ${MVM_MCP_KEY}"
-      }
-    }
-  }
-}
-```
+### Claude
 
-Do not commit real API keys to Git or put them into prompts, screenshots, issue trackers, or shared config files.
+1. Go to Customize → Connectors → Add custom connector and enter https://mvm3d.vercel.app/mcp.
+2. Select OAuth, choose Register automatically when prompted, and start sign-in.
+3. Sign in to MVM3D, review the scopes, and connect. Disconnect the connector from Claude when access is no longer needed.
+
+### Grok
+
+Use Grok's Custom MCP connector with the same URL and follow the authentication options shown in the current Grok interface. Do not confuse browser-based custom connector authorization with the xAI API/Responses API's remote-MCP configuration: an API caller-supplied authorization value does not itself create a browser login or consent screen. Verify the actual Grok custom connector flow end-to-end before treating it as connected.
+
+The legacy static API-key endpoint remains available only for existing integrations that already have a key. It is not part of the new-user setup, and Studio's 3D stack no longer asks people to create or paste one.
 
 ## Permissions
 
@@ -106,28 +103,18 @@ return (async () => {
 
 For a plain OBJ asset, use `new THREE.OBJLoader().loadAsync("/assets/models/part.obj")` then add the returned object to `scene`. To parse in-memory OBJ text, use `new THREE.OBJLoader().parse(objSourceText)`.
 
-## Configure AI providers and select a model
+## Separate Prompt2Model workflow
 
-In **Studio → Integrations → MVM AI Workbench**, connect your own provider API key. The application tests the key by querying the provider's model endpoint and shows the available chat models. Select a model and the choice is saved per user. Supported providers:
+Provider API keys used for prompt-driven scene-script generation live on /Prompt2Model, not in Studio's 3D stack and not in the MCP OAuth connector flow. That page asks a configured language model to draft editable MVM3D JavaScript. Generated code is returned for review and is not executed automatically.
 
-- OpenAI
-- Anthropic
-- Google Gemini
-- Groq
-- OpenRouter
-- DeepSeek
-- Mistral AI
-- xAI
-- Together AI
-
-Provider keys are encrypted server-side and never included in the provider-list response. Generated code is returned for review; it is **not executed automatically**. Apply the generated script to the editor and run it only after checking it.
+MVM3D OAuth authenticates the AI client's access to the MCP server; it does not authenticate an OpenAI, Anthropic, Gemini, Groq, or xAI provider account on the user's behalf.
 
 ## Production requirements and diagnostics
 
 - Configure a persistent Postgres `DATABASE_URL` in the **production Vercel project** and verify migrations can run. MCP OAuth clients/codes, provider connections, API keys, projects, and execution jobs depend on persistent storage.
 - The deployment may set `MCP_PUBLIC_URL=https://mvm3d.vercel.app`; otherwise that is the default OAuth issuer/resource base URL.
 - `MCP_ALLOWED_ORIGINS` and `MCP_ALLOWED_HOSTS` may extend the exact allow lists for trusted clients; do not set permissive origins just to bypass a failed connection.
-- A `401` indicates missing/expired/invalid authentication and should advertise protected-resource metadata. A `403` normally indicates a host/origin restriction or an insufficient scope. A `503` means storage or an authentication dependency is unavailable.
+- A `401` before authorization is expected and must advertise protected-resource metadata so a compatible client can start OAuth. A `403` normally indicates a host/origin restriction or an insufficient scope. A `503` means storage or an authentication dependency is unavailable.
 - Use an owned project ID returned by `list_projects` or `create_project`. Test changes with `read_scene`, then open the same cloud project in Studio and confirm the viewport, animation clip, or exported GLB.
 
 A successful GitHub CI build verifies code generation, type-checking, configured regression tests, and lint. It is not proof that a new version has reached production or that the production database/domain configuration is correct. After deployment, test the exact public URL and OAuth flow before treating the connector as live.
