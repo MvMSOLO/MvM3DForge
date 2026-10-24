@@ -26,6 +26,49 @@ const ACCESS_TOKEN_SECONDS = 60 * 60;
 export const MCP_OAUTH_REFRESH_TOKEN_SECONDS = 30 * 24 * 60 * 60;
 const REFRESH_TOKEN_LIFETIME_MS = MCP_OAUTH_REFRESH_TOKEN_SECONDS * 1000;
 
+export async function resolveMcpOAuthClient(clientId: string): Promise<OAuthClientMetadata | null> {
+  if (!clientId || clientId.length > 256 || clientId.startsWith("https://") || clientId.startsWith("http://")) return null;
+  try {
+    const sql = await getSql();
+    const rows = await sql.query<Record<string, unknown>>(
+      "SELECT client_id, client_name, redirect_uris_json, scope, grant_types_json FROM mcp_oauth_clients WHERE client_id = $1 LIMIT 1",
+      [clientId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+
+    let redirectUris: unknown;
+    let grantTypes: unknown;
+    try {
+      redirectUris = JSON.parse(String(row.redirect_uris_json));
+      grantTypes = JSON.parse(String(row.grant_types_json || '["authorization_code","refresh_token"]'));
+    } catch {
+      return null;
+    }
+    if (
+      !Array.isArray(redirectUris) ||
+      !redirectUris.every(isSafeOAuthRedirectUri) ||
+      !Array.isArray(grantTypes) ||
+      grantTypes.some((grant) => grant !== "authorization_code" && grant !== "refresh_token") ||
+      !grantTypes.includes("authorization_code")
+    ) return null;
+
+    const scopes = normalizeOAuthScopes(typeof row.scope === "string" ? row.scope : "");
+    if (!scopes) return null;
+    return {
+      client_id: String(row.client_id),
+      client_name: String(row.client_name || "AI client"),
+      redirect_uris: redirectUris,
+      token_endpoint_auth_method: "none",
+      grant_types: grantTypes as string[],
+      response_types: ["code"],
+      scope: scopes.join(" "),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function registerMcpOAuthClient(input: {
   client_name?: unknown;
   redirect_uris?: unknown;
