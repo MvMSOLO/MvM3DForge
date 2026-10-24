@@ -1,5 +1,6 @@
 import { getHeader } from "h3";
 import type { H3Event } from "h3";
+import type { IncomingMessage } from "node:http";
 import { auth } from "@/lib/auth/server";
 import { MCP_OAUTH_SCOPES, isSafeOAuthRedirectUri, mcpPublicBaseUrl, mcpResourceUrl, normalizeOAuthScopes, resolveMcpOAuthClient } from "@/lib/mcp/oauth.server";
 
@@ -12,13 +13,38 @@ export function oauthResponseHeaders(event?: H3Event): void {
   event.node.res.setHeader("X-Content-Type-Options", "nosniff");
 }
 
+function incomingRequest(event: H3Event): IncomingMessage | undefined {
+  // Nitro 3 / H3 v2 exposes native Node handles under event.runtime.node;
+  // older H3 adapters expose them at event.node.
+  const compatible = event as H3Event & {
+    runtime?: { node?: { req?: IncomingMessage } };
+    node?: { req?: IncomingMessage };
+  };
+  return compatible.runtime?.node?.req ?? compatible.node?.req;
+}
+
 export function requestHeaders(event: H3Event): Headers {
   const headers = new Headers();
-  for (const [name, raw] of Object.entries(event.node.req.headers)) {
+  const request = incomingRequest(event);
+  for (const [name, raw] of Object.entries(request?.headers ?? {})) {
     if (raw === undefined) continue;
     headers.set(name, Array.isArray(raw) ? raw.join(", ") : raw);
   }
   return headers;
+}
+
+export function isSameOriginConsentRequest(event: H3Event): boolean {
+  const headers = requestHeaders(event);
+  const origin = headers.get("origin");
+  if (!origin) return true;
+  try {
+    const parsed = new URL(origin);
+    const host = (headers.get("host") || "").toLowerCase().split(":")[0];
+    return parsed.protocol === "https:" && parsed.hostname.toLowerCase() === host &&
+      parsed.username === "" && parsed.password === "";
+  } catch {
+    return false;
+  }
 }
 
 export async function getMcpOAuthSession(event: H3Event): Promise<{ id: string; name: string } | null> {
