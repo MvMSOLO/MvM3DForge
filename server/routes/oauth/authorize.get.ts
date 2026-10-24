@@ -39,7 +39,19 @@ export default defineEventHandler(async (event) => {
   }
   if (resource && resource !== mcpResourceUrl()) return badRequest(event, "The requested resource does not match this MCP server.");
   const scopes = normalizeOAuthScopes(query.get("scope") || client.scope || MCP_OAUTH_SCOPES.join(" "));
-  if (!scopes) return badRequest(event, "The requested OAuth scope contains an unsupported permission.");
+  const registeredScopes = normalizeOAuthScopes(client.scope || MCP_OAUTH_SCOPES.join(" "));
+  if (!scopes || !registeredScopes || scopes.some((scope) => !registeredScopes.includes(scope))) {
+    return badRequest(event, "The requested OAuth scope is invalid or exceeds this client's registered permissions.");
+  }
+  // Make the account step visible before showing OAuth permissions.
+  // This marker prevents a login -> authorize redirect loop.
+  if (query.get("mvm3d_login_gate") !== "1") {
+    const loginParams = new URLSearchParams(query);
+    loginParams.set("mvm3d_login_gate", "1");
+    const loginReturn = `${url.pathname}?${loginParams.toString()}`;
+    return sendRedirect(event, `/login?next=${encodeURIComponent(loginReturn)}`, 302);
+  }
+
   const current = `${url.pathname}${url.search}`;
   const session = await getMcpOAuthSession(event);
   if (!session) {

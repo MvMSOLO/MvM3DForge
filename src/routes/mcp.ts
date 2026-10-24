@@ -45,12 +45,17 @@ async function handleMcp(request: Request): Promise<Response> {
         userId = identity.userId;
         scopes = identity.scopes;
       }
-    } catch {
-      // A failed OAuth verification must not bypass authentication.
+    } catch (error) {
+      // Never log the bearer token itself; the verifier error is enough to
+      // distinguish expiry, issuer/audience mismatch, and signing-secret issues.
+      console.error("[mcp] OAuth bearer verification failed", {
+        message: error instanceof Error ? error.message.slice(0, 300) : "Unknown verification error",
+      });
     }
   }
 
   if (process.env.NODE_ENV === "production" && dbSource !== "neon") {
+    console.error("[mcp] request rejected because persistent Postgres is unavailable", { dbSource });
     return withCors(Response.json(
       { error: "Remote MCP requires a persistent Postgres DATABASE_URL; the endpoint will not use ephemeral storage." },
       { status: 503 },
@@ -59,8 +64,12 @@ async function handleMcp(request: Request): Promise<Response> {
 
   if (!userId) {
     const resourceMetadata = "https://mvm3d.vercel.app/.well-known/oauth-protected-resource/mcp";
+    console.warn("[mcp] request rejected: missing or invalid bearer credential", {
+      method: request.method,
+      credentialType: keyMatch ? "api-key" : oauthMatch ? "oauth" : authorization.startsWith("Bearer ") ? "unknown-bearer" : "missing",
+    });
     return withCors(Response.json(
-      { error: "Authentication required. Connect through the MVM3D OAuth flow or use an MCP API key." },
+      { error: "Authentication required. Reconnect MVM3D in your MCP client, then retry the tool call." },
       {
         status: 401,
         headers: {
@@ -75,7 +84,9 @@ async function handleMcp(request: Request): Promise<Response> {
     await server.connect(transport);
     return withCors(await transport.handleRequest(request));
   } catch (error) {
-    return withCors(Response.json({ error: (error instanceof Error ? error.message : "MCP request failed.").slice(0, 1000) }, { status: 500 }));
+    const message = error instanceof Error ? error.message : "MCP request failed.";
+    console.error("[mcp] transport request failed", { method: request.method, message: message.slice(0, 1000) });
+    return withCors(Response.json({ error: message.slice(0, 1000) }, { status: 500 }));
   }
 }
 export const Route = createFileRoute("/mcp")({

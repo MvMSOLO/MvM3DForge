@@ -35,9 +35,7 @@ import { animationClips, assembleScene } from "@/forge/scene-three.ts";
 import { useStudioStore, useHistoryStore } from "@/forge/store";
 import { PropertyInspector } from "@/components/PropertyInspector";
 import { CommandPalette } from "@/components/CommandPalette";
-import { McpApiKeysPanel } from "@/components/McpApiKeysPanel";
 import { CloudProjectsPanel } from "@/components/CloudProjectsPanel";
-import { AIProviderPanel } from "@/components/AIProviderPanel";
 import type { Project } from "@/forge/types.ts";
 
 type StudioRenderer = {
@@ -159,6 +157,19 @@ function Studio() {
   } = useStudioStore();
 
   const { undo, redo, canUndo, canRedo } = useHistoryStore();
+
+  useEffect(() => {
+    try {
+      const pendingCode = window.localStorage.getItem("mvm3d.prompt2model.pending-code");
+      if (!pendingCode) return;
+      window.localStorage.removeItem("mvm3d.prompt2model.pending-code");
+      setCode(pendingCode);
+      setActiveTab("code");
+      setMessage("Prompt2Model script loaded. Review it before running.");
+    } catch {
+      setMessage("Could not load the Prompt2Model handoff. Copy the script manually.");
+    }
+  }, [setCode, setActiveTab, setMessage]);
 
   const [copied, setCopied] = useState(false);
   const [rendererMode, setRendererMode] = useState<"regular" | "advanced">(() => {
@@ -1264,16 +1275,29 @@ function Studio() {
 
           {activeTab === "integrations" && (
             <div className="forge-integrations flex-1 overflow-auto p-4">
-              <AIProviderPanel
-                code={code}
-                onApplyCode={(nextCode) => {
-                  setCode(nextCode);
-                  setActiveTab("code");
-                  setMessage("AI script applied to the editor. Review it, then use Run when ready.");
-                }}
-                onStatus={setMessage}
-              />
-              <McpApiKeysPanel />
+              <section className="mb-4 rounded-xl border border-[#83f0ce]/20 bg-[#080d12]/75 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+                  <Check size={15} className="text-[#83f0ce]" /> Remote MCP · OAuth 2.1
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-slate-400">
+                  Connect ChatGPT, Claude, or a compatible Grok custom connector with this URL. You do not need to create an MVM3D API key first: the client opens MVM3D sign-in, then you review and approve its permissions.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <code className="min-w-0 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[11px] text-[#a5efda]">https://mvm3d.vercel.app/mcp</code>
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard.writeText("https://mvm3d.vercel.app/mcp").then(() => setMessage("MVM3D MCP URL copied.")).catch(() => setMessage("Clipboard unavailable — copy https://mvm3d.vercel.app/mcp manually."))}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-[11px] font-semibold text-slate-200 hover:bg-white/[.06]"
+                  >
+                    <Copy size={13} /> Copy MCP URL
+                  </button>
+                  <a href="/mcp-setup" target="_blank" rel="noreferrer" className="text-[11px] text-[#83f0ce] hover:underline">Connection guide ↗</a>
+                </div>
+                <div className="mt-3 flex items-start gap-2 border-t border-white/[.08] pt-3 text-[10px] leading-5 text-slate-500">
+                  <Sparkles size={13} className="mt-0.5 shrink-0 text-[#83f0ce]" />
+                  <span>Prompt-driven scene scripting is separate from Studio. Open <a href="/Prompt2Model" className="font-semibold text-[#83f0ce] hover:underline">Prompt2Model</a> for that workflow.</span>
+                </div>
+              </section>
               <CloudProjectsPanel
                 project={project}
                 code={code}

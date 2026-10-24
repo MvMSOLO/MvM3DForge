@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -14,25 +14,53 @@ import {
 import { authClient, authEnabled } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
-export const Route = createFileRoute("/login")({ component: LoginPage });
+export const Route = createFileRoute("/login")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    next: typeof search.next === "string" ? search.next : undefined,
+  }),
+  component: LoginPage,
+});
 
 type FormMode = "signin" | "signup";
 
-function getReturnPath(): string {
-  if (typeof window === "undefined") return "/studio";
-  const requested = new URLSearchParams(window.location.search).get("next");
+function getReturnPath(searchNext?: string): string {
+  const requested = searchNext ?? (
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("next")
+  );
   if (!requested || !requested.startsWith("/") || requested.startsWith("//")) return "/studio";
   try {
-    const target = new URL(requested, window.location.origin);
-    if (target.origin !== window.location.origin) return "/studio";
+    const origin = typeof window === "undefined" ? "https://mvm3d.vercel.app" : window.location.origin;
+    const target = new URL(requested, origin);
+    if (target.origin !== origin) return "/studio";
     return target.pathname + target.search + target.hash;
   } catch {
     return "/studio";
   }
 }
 
+function isMcpOAuthReturnPath(path: string): boolean {
+  const separator = path.indexOf("?");
+  if (separator < 0 || path.slice(0, separator) !== "/oauth/authorize") return false;
+  return new URLSearchParams(path.slice(separator + 1).split("#")[0]).get("mvm3d_login_gate") === "1";
+}
+
 function LoginPage() {
+  const search = Route.useSearch();
+  const returnPath = getReturnPath(search.next);
+  const mcpOAuthConnect = isMcpOAuthReturnPath(returnPath);
   const { user, isPending } = useCurrentUserState();
+  const [sessionCheckTimedOut, setSessionCheckTimedOut] = useState(false);
+
+  // A slow/unavailable session endpoint must never leave OAuth login on a
+  // permanent spinner. Allow the real sign-in form to render after 4 seconds.
+  useEffect(() => {
+    if (!isPending) {
+      setSessionCheckTimedOut(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => setSessionCheckTimedOut(true), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [isPending]);
   const [mode, setMode] = useState<FormMode>("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -63,7 +91,7 @@ function LoginPage() {
 
     setSubmitting(true);
     try {
-      const callbackURL = getReturnPath();
+      const callbackURL = returnPath;
       const result =
         mode === "signup"
           ? await authClient.signUp.email({
@@ -130,7 +158,7 @@ function LoginPage() {
             </div>
           </div>
 
-          {isPending ? (
+          {isPending && !sessionCheckTimedOut && !mcpOAuthConnect ? (
             <div className="flex min-h-56 flex-col items-center justify-center gap-3 text-center">
               <LoaderCircle size={24} className="animate-spin text-[#83f0ce]" />
               <p className="text-sm text-[#a9b7c5]">Checking your session…</p>
@@ -140,10 +168,14 @@ function LoginPage() {
               <span className="mx-auto grid size-12 place-items-center rounded-full border border-[#83f0ce]/25 bg-[#83f0ce]/[0.08] text-[#83f0ce]">
                 <CheckCircle2 size={24} />
               </span>
-              <h1 className="mt-4 text-2xl font-semibold tracking-tight">You’re signed in</h1>
-              <p className="mt-2 text-sm text-[#95a5b3]">{user.primaryEmail ?? user.displayName ?? "Your account"} is ready to use.</p>
-              <a href={getReturnPath()} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-[#83f0ce] px-4 py-3 text-sm font-semibold text-[#071511] transition hover:bg-[#a1f7dc]">
-                Continue to Studio
+              <h1 className="mt-4 text-2xl font-semibold tracking-tight">{mcpOAuthConnect ? "Confirm your MVM3D account." : "You’re signed in"}</h1>
+              <p className="mt-2 text-sm text-[#95a5b3]">
+                {mcpOAuthConnect
+                  ? `${user.primaryEmail ?? user.displayName ?? "Your account"} is signed in. Continue to review and approve the AI client’s requested permissions.`
+                  : `${user.primaryEmail ?? user.displayName ?? "Your account"} is ready to use.`}
+              </p>
+              <a href={returnPath} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-[#83f0ce] px-4 py-3 text-sm font-semibold text-[#071511] transition hover:bg-[#a1f7dc]">
+                {mcpOAuthConnect ? "Continue to permission review" : "Continue to Studio"}
               </a>
             </div>
           ) : !authEnabled ? (
@@ -154,14 +186,20 @@ function LoginPage() {
           ) : (
             <>
               <div className="mb-6">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#83f0ce]">Secure account access</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#83f0ce]">
+                  {mcpOAuthConnect ? "MVM3D CONNECTION · SIGN IN FIRST" : "Secure account access"}
+                </p>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-                  {mode === "signin" ? "Welcome back." : "Create your account."}
+                  {mcpOAuthConnect
+                    ? mode === "signin" ? "Sign in to connect MVM3D." : "Create an account to connect."
+                    : mode === "signin" ? "Welcome back." : "Create your account."}
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-[#95a5b3]">
-                  {mode === "signin"
-                    ? "Sign in to create MCP keys and manage your private 3D projects."
-                    : "One account for your projects, integrations and API keys."}
+                  {mcpOAuthConnect
+                    ? "Sign in or create an account first. On the next screen, you’ll review each permission before the AI client can access your workspace."
+                    : mode === "signin"
+                      ? "Sign in to open your private 3D projects and approve secure AI-client connections."
+                      : "One account for your 3D projects and secure OAuth connections."}
                 </p>
               </div>
 
@@ -173,6 +211,12 @@ function LoginPage() {
                   Create account
                 </button>
               </div>
+
+              {sessionCheckTimedOut && (
+                <p role="status" className="mb-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.05] px-3 py-2.5 text-xs leading-5 text-amber-100">
+                  Session check is taking longer than expected. You can still sign in below; after signing in, MVM3D will return to the pending AI connection.
+                </p>
+              )}
 
               <form onSubmit={(event) => void submit(event)} className="space-y-4">
                 {mode === "signup" && (

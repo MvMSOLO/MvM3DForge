@@ -218,6 +218,13 @@ export function createPersistedMcpServer(
         return textResult(output);
       } catch (error) {
         const message = error instanceof Error ? error.message : "The MCP operation failed.";
+        // The MCP client receives this as isError=true; also make the cause
+        // visible in Vercel logs without logging arguments, tokens, or project data.
+        console.error("[mcp] tool call failed", {
+          tool: name,
+          requiredScope: scope,
+          message: message.slice(0, 1000),
+        });
         return toolError(message);
       }
     });
