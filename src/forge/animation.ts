@@ -7,7 +7,7 @@ export function sampleTrack(track: AnimTrack, time: number): number[] | null {
   const last = keys[keys.length - 1];
   if (time >= last.time) return last.value.slice();
   let index = 0;
-  while (index < keys.length - 1 && keys[index + 1].time < time) index += 1;
+  while (index < keys.length - 1 && keys[index + 1].time <= time) index += 1;
   const a = keys[index];
   const b = keys[index + 1];
   // A step track holds its current value until the next key rather than easing
