@@ -111,11 +111,19 @@ class SandboxDataTextureLoader extends THREE.DataTextureLoader {
   constructor() {
     super(createSandboxLoadingManager());
   }
+
+  override parse(_buffer: ArrayBuffer): never {
+    throw new Error("DataTextureLoader is an abstract base. Use a concrete format loader or parse the texture data yourself.");
+  }
 }
 
 class SandboxCompressedTextureLoader extends THREE.CompressedTextureLoader {
   constructor() {
     super(createSandboxLoadingManager());
+  }
+
+  override parse(_buffer: ArrayBuffer, _loadMipmaps?: boolean): never {
+    throw new Error("CompressedTextureLoader is an abstract base. Add a format-specific parser before loading compressed textures.");
   }
 }
 
