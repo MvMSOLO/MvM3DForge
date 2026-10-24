@@ -70,6 +70,7 @@ export default defineEventHandler(async (event) => {
       scope: scopes.join(" "), code_challenge: challenge, code_challenge_method: "S256",
     });
     if (resource) search.set("resource", resource);
+    search.set("mvm3d_login_gate", "1");
     return sendRedirect(event, `/login?next=${encodeURIComponent("/oauth/authorize?" + search.toString())}`, 302);
   }
 
