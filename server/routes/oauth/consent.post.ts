@@ -4,24 +4,12 @@ import {
   getMcpOAuthSession,
   getRegisteredClient,
   isSafeOAuthRedirectUri,
+  isSameOriginConsentRequest,
   mcpPublicBaseUrl,
   mcpResourceUrl,
   normalizeOAuthScopes,
   readFormBody,
 } from "../../utils/mcp-oauth.ts";
-
-function sameOrigin(event: Parameters<Parameters<typeof defineEventHandler>[0]>[0]): boolean {
-  const origin = event.node.req.headers.origin;
-  if (typeof origin !== "string" || !origin) return true;
-  try {
-    const parsed = new URL(origin);
-    const host = String(event.node.req.headers.host || "").toLowerCase().split(":")[0];
-    return parsed.protocol === "https:" && parsed.hostname.toLowerCase() === host &&
-      parsed.username === "" && parsed.password === "";
-  } catch {
-    return false;
-  }
-}
 
 function errorPage(event: Parameters<Parameters<typeof defineEventHandler>[0]>[0], status: number, message: string) {
   setResponseStatus(event, status);
@@ -35,7 +23,7 @@ function errorPage(event: Parameters<Parameters<typeof defineEventHandler>[0]>[0
 
 export default defineEventHandler(async (event) => {
   setHeader(event, "Cache-Control", "no-store");
-  if (!sameOrigin(event)) return errorPage(event, 403, "Cross-origin consent submissions are blocked.");
+  if (!isSameOriginConsentRequest(event)) return errorPage(event, 403, "Cross-origin consent submissions are blocked.");
 
   let body: Record<string, string>;
   try {
