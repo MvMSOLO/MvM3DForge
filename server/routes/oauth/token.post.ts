@@ -53,6 +53,7 @@ export default defineEventHandler(async (event) => {
       token_type: "Bearer",
       expires_in: 3600,
       scope: requestedScopes.join(" "),
+      ...(body.resource ? { resource: mcpResourceUrl() } : {}),
     };
   } catch {
     setResponseStatus(event, 503);
