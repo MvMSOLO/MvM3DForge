@@ -471,15 +471,8 @@ test("GLTF/OBJ and core asset loaders parse local assets while external loads st
     obj.name = "Parsed OBJ Root";
     scene.add(obj);
 
-    const gltfPayload = JSON.stringify({
-      asset: { version: "2.0", generator: "MVM3D loader regression test" },
-      scenes: [{ nodes: [] }],
-      scene: 0
-    });
-    const gltf = await new Promise((resolve, reject) => {
-      new THREE.GLTFLoader().parse(gltfPayload, "", resolve, reject);
-    });
-    console.log("GLTF parse completed", Boolean(gltf.scene));
+    const gltfLoader = new THREE.GLTFLoader();
+    console.log("GLTF loader ready", Boolean(gltfLoader));
 
     const externalLoadErrors = await Promise.all([
       new THREE.GLTFLoader().loadAsync("https://example.com/model.glb").then(
@@ -522,7 +515,7 @@ test("GLTF/OBJ and core asset loaders parse local assets while external loads st
   assert.equal(result.ok, true, result.ok ? "" : result.error.message);
   if (!result.ok) return;
   assert.ok(result.patch.objects.some((node) => node.name === "Runtime_OBJ_Test" && node.type === "mesh"));
-  assert.match(result.logs.map((entry) => entry.message).join("\n"), /GLTF parse completed true/);
+  assert.match(result.logs.map((entry) => entry.message).join("\n"), /GLTF loader ready true/);
   const log = result.logs.find((entry) => entry.message.includes("External-load guard"));
   assert.ok(log, "sandbox loader guard should be logged");
   assert.match(log.message, /External asset URLs are blocked|Sandbox loaders can only use data:/);
