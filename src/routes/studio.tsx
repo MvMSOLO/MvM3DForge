@@ -482,6 +482,8 @@ function Studio() {
     let pmremGenerator: THREE.PMREMGenerator | undefined;
     let environmentTarget: THREE.WebGLRenderTarget | undefined;
     let sourceEnvironmentTexture: THREE.Texture | undefined;
+    let webGpuInitializationStarted = false;
+    let webGpuInitialized = false;
 
     void (async () => {
       const built = await assembleScene(project, { mode: viewMode, shadows: true, onlyVisible: false });
