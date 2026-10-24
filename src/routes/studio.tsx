@@ -36,6 +36,7 @@ import { PropertyInspector } from "@/components/PropertyInspector";
 import { CommandPalette } from "@/components/CommandPalette";
 import { McpApiKeysPanel } from "@/components/McpApiKeysPanel";
 import { CloudProjectsPanel } from "@/components/CloudProjectsPanel";
+import { AIProviderPanel } from "@/components/AIProviderPanel";
 import type { Project } from "@/forge/types.ts";
 
 type StudioRenderer = {
@@ -1237,6 +1238,15 @@ function Studio() {
 
           {activeTab === "integrations" && (
             <div className="forge-integrations flex-1 overflow-auto p-4">
+              <AIProviderPanel
+                code={code}
+                onApplyCode={(nextCode) => {
+                  setCode(nextCode);
+                  setActiveTab("code");
+                  setMessage("AI script applied to the editor. Review it, then use Run when ready.");
+                }}
+                onStatus={setMessage}
+              />
               <McpApiKeysPanel />
               <CloudProjectsPanel
                 project={project}
