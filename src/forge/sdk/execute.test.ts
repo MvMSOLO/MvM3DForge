@@ -417,7 +417,7 @@ test("custom environment URL rejects unsupported protocols and file types", asyn
   if (!png.ok) assert.match(png.error.message, /environment URL/i);
 });
 
-test("GLTFLoader and OBJLoader parse assets inside the script runtime while remote loads stay blocked", async () => {
+test("GLTF/OBJ and core asset loaders parse local assets while external loads stay blocked", async () => {
   const result = await executeUserCode(`
     return (async () => {
     const objLoader = new THREE.OBJLoader();
@@ -455,6 +455,22 @@ test("GLTFLoader and OBJLoader parse assets inside the script runtime while remo
         (error) => String(error?.message || error)
       ),
       new THREE.FileLoader().loadAsync("https://example.com/private-data").then(
+        () => "unexpected-success",
+        (error) => String(error?.message || error)
+      ),
+      new THREE.ImageBitmapLoader().loadAsync("https://example.com/image.png").then(
+        () => "unexpected-success",
+        (error) => String(error?.message || error)
+      ),
+      new THREE.DataTextureLoader().loadAsync("https://example.com/data.bin").then(
+        () => "unexpected-success",
+        (error) => String(error?.message || error)
+      ),
+      new THREE.CompressedTextureLoader().loadAsync("https://example.com/texture.bin").then(
+        () => "unexpected-success",
+        (error) => String(error?.message || error)
+      ),
+      new THREE.AudioLoader().loadAsync("https://example.com/audio.ogg").then(
         () => "unexpected-success",
         (error) => String(error?.message || error)
       )
