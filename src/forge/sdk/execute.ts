@@ -122,7 +122,7 @@ class SandboxCompressedTextureLoader extends THREE.CompressedTextureLoader {
     super(createSandboxLoadingManager());
   }
 
-  override parse(_buffer: ArrayBuffer, _loadMipmaps?: boolean): never {
+  parse(_buffer: ArrayBuffer, _loadMipmaps?: boolean): never {
     throw new Error("CompressedTextureLoader is an abstract base. Add a format-specific parser before loading compressed textures.");
   }
 }
