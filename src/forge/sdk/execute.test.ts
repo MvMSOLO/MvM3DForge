@@ -416,7 +416,7 @@ test("runtime budget profile raises the actual object budget within hard ceiling
     '  const mesh = mvm.geometry.box({ name: "Budget_Mesh_" + i });',
     '  mvm.scene.add(mesh);',
     '}',
-  ].join("\n"));
+  ].join("\\n"));
   assert.equal(result.ok, true, result.ok ? "" : result.error.message);
   if (!result.ok) return;
   assert.equal(result.patch.objects.length, 405);
