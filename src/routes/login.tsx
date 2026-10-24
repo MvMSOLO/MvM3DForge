@@ -160,8 +160,8 @@ function LoginPage() {
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-[#95a5b3]">
                   {mode === "signin"
-                    ? "Sign in to create MCP keys and manage your private 3D projects."
-                    : "One account for your projects, integrations and API keys."}
+                    ? "Sign in to open your private 3D projects and approve secure AI-client connections."
+                    : "One account for your 3D projects and secure OAuth connections."}
                 </p>
               </div>
 
