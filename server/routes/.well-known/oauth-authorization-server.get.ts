@@ -17,6 +17,7 @@ export default defineEventHandler(() => {
     code_challenge_methods_supported: ["S256"],
     scopes_supported: [...MCP_OAUTH_SCOPES],
     client_id_metadata_document_supported: true,
+    authorization_response_iss_parameter_supported: true,
     service_documentation: `${issuer}/docs/mcp-client-setup`,
     resource: mcpResourceUrl(),
   };
