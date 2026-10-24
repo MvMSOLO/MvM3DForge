@@ -553,13 +553,11 @@ function Studio() {
         if (renderer.backend?.isWebGPUBackend !== true) {
           throw new Error("Three.js did not activate the WebGPU backend (it may have selected its WebGL2 fallback). MVM ADVANCED requires the actual WebGPU backend.");
         }
-        webGpuInitialized = true;
         if (disposed) {
           renderer.dispose();
           return;
         }
-        setRendererLabel("MVM ADVANCED · WebGPU");
-        addLog("[INFO] MVM ADVANCED WebGPU renderer initialized.");
+        addLog("[INFO] MVM ADVANCED WebGPU backend verified. Preparing PBR environment and render pipeline.");
       } else {
         renderer = new THREE.WebGLRenderer({
           antialias: true,
@@ -574,13 +572,12 @@ function Studio() {
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = project.scene.exposure || 1;
 
-      // PMREM is WebGL-specific in the current Three.js API. The advanced mode
-      // intentionally uses direct scene lighting rather than trying to reuse a
-      // WebGL render target in a WebGPU backend.
-      if (rendererMode === "regular") {
-        pmremGenerator = new THREE.PMREMGenerator(renderer as unknown as THREE.WebGLRenderer);
-        pmremGenerator.compileEquirectangularShader();
-      } else {
+      // Three.js r186's common PMREMGenerator uses the active Renderer backend,
+      // including WebGPU. Initialize it only after the renderer has initialized.
+      pmremGenerator = new THREE.PMREMGenerator(renderer as unknown as THREE.WebGLRenderer);
+      await pmremGenerator.compileEquirectangularShader();
+
+      if (rendererMode === "advanced") {
         const hasHemisphere = renderScene.children.some((child) => child instanceof THREE.HemisphereLight);
         const hasDirectional = renderScene.children.some((child) => child instanceof THREE.DirectionalLight);
         const defaultLights: THREE.Light[] = [];
@@ -594,7 +591,7 @@ function Studio() {
       }
 
       const applyPresetEnvironment = () => {
-        if (disposed || !renderScene || !pmremGenerator || rendererMode !== "regular") return;
+        if (disposed || !renderScene || !pmremGenerator) return;
         const preset = project.scene.environment ?? "studio";
         if (preset === "none") {
           renderScene.environment = null;
@@ -626,10 +623,7 @@ function Studio() {
       };
 
       const customUrl = project.scene.environmentUrl;
-      if (rendererMode === "advanced") {
-        // WebGPU mode keeps the PBR scene and lights but skips WebGL-only PMREM targets.
-        renderScene.background = new THREE.Color(project.scene.background || "#10161e");
-      } else if (customUrl) {
+      if (customUrl) {
         const urlPath = customUrl.split(/[?#]/, 1)[0] || customUrl;
         const onEnvironmentLoaded = (texture: THREE.Texture) => {
           if (disposed || !pmremGenerator || !renderScene) {
@@ -682,6 +676,11 @@ function Studio() {
         controls.update();
         if (mixer && clock) mixer.update(clock.getDelta());
         renderer.render(renderScene, camera);
+        if (rendererMode === "advanced" && webGpuInitializationStarted && !webGpuInitialized) {
+          webGpuInitialized = true;
+          setRendererLabel("MVM ADVANCED · WebGPU");
+          addLog("[INFO] MVM ADVANCED scene rendered with WebGPU, including the PMREM environment.");
+        }
         renderedProjectKeyRef.current = viewportProjectKey;
         const ready = renderWaitersRef.current.get(viewportProjectKey);
         if (ready) ready();
