@@ -151,6 +151,46 @@ test("animation.play marks the clip for viewport autoplay", async () => {
   assert.equal(result.patch.clips[0]?.name, "Move");
 });
 
+test("imports native Three.js transform animation clips into editable Forge timeline tracks", async () => {
+  const result = await executeUserCode(`
+    const root = new THREE.Group();
+    root.name = "Imported Animation Root";
+    const part = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ color: "#35AEEF", roughness: 0.4 })
+    );
+    part.name = "Animated Part";
+    root.add(part);
+    scene.add(root);
+
+    const positionTrack = new THREE.VectorKeyframeTrack(
+      "Animated Part.position",
+      new Float32Array([0, 1]),
+      new Float32Array([0, 0, 0, 2, 0, 0])
+    );
+    const importedSource = new THREE.AnimationClip("Source Position Clip", 1, [positionTrack]);
+    const imported = mvm.animation.importThreeClip(importedSource, root);
+    mvm.animation.play(imported.id);
+    console.log("Imported animation", imported);
+  `);
+
+  assert.equal(result.ok, true, result.ok ? "" : result.error.message);
+  if (!result.ok) return;
+  const clip = result.patch.clips.find((item) => item.name === "Source Position Clip");
+  assert.ok(clip, "the source clip should be saved to the project timeline");
+  assert.equal(clip?.source, "import");
+  assert.equal(clip?.tracks.length, 1);
+  const target = result.patch.objects.find((node) => node.name === "Animated Part");
+  assert.ok(target, "the animation target should be converted to a Forge object");
+  assert.equal(clip?.tracks[0]?.objectId, target?.id);
+  assert.equal(clip?.tracks[0]?.property, "position");
+  assert.deepEqual(clip?.tracks[0]?.keyframes, [
+    { time: 0, value: [0, 0, 0] },
+    { time: 1, value: [2, 0, 0] },
+  ]);
+  assert.equal(result.patch.autoplayClipId, clip?.id);
+});
+
 test("mixed Forge and native Three.js objects convert into Forge nodes and preserve animation targets", async () => {
   const result = await executeUserCode(`
     const root = new THREE.Group();
