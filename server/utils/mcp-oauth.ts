@@ -1,6 +1,5 @@
 import { getHeader } from "h3";
 import type { H3Event } from "h3";
-import type { IncomingMessage } from "node:http";
 import { auth } from "@/lib/auth/server";
 import {
   createMcpOAuthCode,
@@ -38,22 +37,24 @@ export {
 };
 export type { McpOAuthScope };
 
-function incomingRequest(event: H3Event): IncomingMessage | undefined {
-  // Nitro 3 / H3 v2 exposes native Node handles under event.runtime.node;
-  // older H3 adapters expose them at event.node.
-  const compatible = event as H3Event & {
-    runtime?: { node?: { req?: IncomingMessage } };
-    node?: { req?: IncomingMessage };
-  };
-  return compatible.runtime?.node?.req ?? compatible.node?.req;
-}
-
 export function requestHeaders(event: H3Event): Headers {
+  // Read through H3's web request abstraction, not a Node request handle.
+  // Vercel's Web/Nitro adapter may not expose Node handles, but the browser
+  // cookie is still required for the OAuth login -> consent handoff.
   const headers = new Headers();
-  const request = incomingRequest(event);
-  for (const [name, raw] of Object.entries(request?.headers ?? {})) {
-    if (raw === undefined) continue;
-    headers.set(name, Array.isArray(raw) ? raw.join(", ") : raw);
+  for (const name of [
+    "authorization",
+    "cookie",
+    "origin",
+    "host",
+    "user-agent",
+    "referer",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "content-type",
+  ]) {
+    const value = getHeader(event, name);
+    if (value) headers.set(name, value);
   }
   return headers;
 }
