@@ -296,7 +296,7 @@ export async function generateWithAiProvider(input: {
   const codeContext = (input.code || "").slice(0, 18_000);
   const userMessage = `USER TASK:\n${prompt}\n\nCURRENT STUDIO SCRIPT:\n${codeContext || "(empty script)"}`;
   let url: string;
-  let headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = { "content-type": "application/json" };
   let body: unknown;
   if (config.kind === "anthropic") {
     url = `${config.baseUrl}/messages`;
