@@ -101,6 +101,30 @@ class SandboxCubeTextureLoader extends THREE.CubeTextureLoader {
   }
 }
 
+class SandboxImageBitmapLoader extends THREE.ImageBitmapLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxDataTextureLoader extends THREE.DataTextureLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxCompressedTextureLoader extends THREE.CompressedTextureLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxAudioLoader extends THREE.AudioLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
 class SandboxGLTFLoader extends GLTFLoader {
   constructor() {
     super(createSandboxLoadingManager());
@@ -118,6 +142,10 @@ type ScriptThreeRuntime = typeof THREE & {
   ImageLoader: typeof SandboxImageLoader;
   TextureLoader: typeof SandboxTextureLoader;
   CubeTextureLoader: typeof SandboxCubeTextureLoader;
+  ImageBitmapLoader: typeof SandboxImageBitmapLoader;
+  DataTextureLoader: typeof SandboxDataTextureLoader;
+  CompressedTextureLoader: typeof SandboxCompressedTextureLoader;
+  AudioLoader: typeof SandboxAudioLoader;
   GLTFLoader: typeof SandboxGLTFLoader;
   OBJLoader: typeof SandboxOBJLoader;
 };
@@ -1487,6 +1515,10 @@ export async function executeUserCode(code: string): Promise<RunResult> {
     ["ImageLoader", SandboxImageLoader],
     ["TextureLoader", SandboxTextureLoader],
     ["CubeTextureLoader", SandboxCubeTextureLoader],
+    ["ImageBitmapLoader", SandboxImageBitmapLoader],
+    ["DataTextureLoader", SandboxDataTextureLoader],
+    ["CompressedTextureLoader", SandboxCompressedTextureLoader],
+    ["AudioLoader", SandboxAudioLoader],
     ["GLTFLoader", SandboxGLTFLoader],
     ["OBJLoader", SandboxOBJLoader],
   ] as const) {
