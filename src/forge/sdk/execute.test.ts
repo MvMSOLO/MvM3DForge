@@ -426,7 +426,7 @@ test("GLTFLoader and OBJLoader parse assets inside the script runtime while remo
       "v 1 0 0",
       "v 0 1 0",
       "f 1 2 3"
-    ].join("\\n"));
+    ].join("\n"));
     obj.name = "Parsed OBJ Root";
     scene.add(obj);
 
@@ -464,7 +464,7 @@ test("GLTFLoader and OBJLoader parse assets inside the script runtime while remo
   assert.equal(result.ok, true, result.ok ? "" : result.error.message);
   if (!result.ok) return;
   assert.ok(result.patch.objects.some((node) => node.name === "Runtime_OBJ_Test" && node.type === "mesh"));
-  assert.match(result.logs.map((entry) => entry.message).join("\\n"), /GLTF parse completed true/);
+  assert.match(result.logs.map((entry) => entry.message).join("\n"), /GLTF parse completed true/);
   const log = result.logs.find((entry) => entry.message.includes("External-load guard"));
   assert.ok(log, "sandbox loader guard should be logged");
   assert.match(log.message, /External asset URLs are blocked|Sandbox loaders can only use data:/);
