@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { createPersistedMcpServer } from "@/forge/remote-mcp-server.ts";
 import { authenticateMcpApiKey } from "@/lib/mcp/api-keys.server.ts";
 import { verifyMcpOAuthAccessToken } from "@/lib/mcp/oauth.server.ts";
+import { dbSource } from "@/lib/db.ts";
 function corsHeaders(): Headers {
   return new Headers({
     "access-control-allow-origin": "*",
@@ -47,6 +48,13 @@ async function handleMcp(request: Request): Promise<Response> {
     } catch {
       // A failed OAuth verification must not bypass authentication.
     }
+  }
+
+  if (process.env.NODE_ENV === "production" && dbSource !== "neon") {
+    return withCors(Response.json(
+      { error: "Remote MCP requires a persistent Postgres DATABASE_URL; the endpoint will not use ephemeral storage." },
+      { status: 503 },
+    ));
   }
 
   if (!userId) {
