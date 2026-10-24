@@ -3,114 +3,28 @@ import { SignJWT, jwtVerify } from "jose";
 import { getSql } from "@/lib/db";
 import { mcpOAuthSigningSecret } from "@/lib/auth/server";
 
-export const MCP_OAUTH_SCOPES = [
-  "project:read",
-  "scene:write",
-  "scene:execute",
-  "assets:export",
-  "offline_access",
-] as const;
-export type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number];
+import {
+  MCP_OAUTH_SCOPES,
+  isSafeOAuthRedirectUri,
+  mcpPublicBaseUrl,
+  mcpResourceUrl,
+  normalizeOAuthScopes,
+} from "./oauth-config.ts";
+import type { McpOAuthScope } from "./oauth-config.ts";
+export {
+  MCP_OAUTH_SCOPES,
+  isSafeOAuthRedirectUri,
+  mcpPublicBaseUrl,
+  mcpResourceUrl,
+  normalizeOAuthScopes,
+} from "./oauth-config.ts";
+export type { McpOAuthScope };
 
 const SCOPE_SET = new Set<string>(MCP_OAUTH_SCOPES);
 const CODE_LIFETIME_MS = 5 * 60 * 1000;
 const ACCESS_TOKEN_SECONDS = 60 * 60;
 export const MCP_OAUTH_REFRESH_TOKEN_SECONDS = 30 * 24 * 60 * 60;
 const REFRESH_TOKEN_LIFETIME_MS = MCP_OAUTH_REFRESH_TOKEN_SECONDS * 1000;
-
-export function mcpPublicBaseUrl(): string {
-  const configured = process.env.MCP_PUBLIC_URL?.trim();
-  const base = (configured || "https://mvm3d.vercel.app").replace(/\/+$/, "");
-  const parsed = new URL(base);
-  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
-    throw new Error("MCP_PUBLIC_URL must use HTTPS outside local development.");
-  }
-  return parsed.origin;
-}
-
-export function mcpResourceUrl(): string {
-  return `${mcpPublicBaseUrl()}/mcp`;
-}
-
-export function normalizeOAuthScopes(value: string | null | undefined): McpOAuthScope[] | null {
-  const scopes = [...new Set((value || "").split(/\s+/).filter(Boolean))];
-  if (!scopes.length) return ["project:read"];
-  if (scopes.some((scope) => !SCOPE_SET.has(scope))) return null;
-  return scopes as McpOAuthScope[];
-}
-
-export function isSafeOAuthRedirectUri(value: unknown): value is string {
-  if (typeof value !== "string" || value.length > 2048) return false;
-  try {
-    const url = new URL(value);
-    if (url.username || url.password || url.hash) return false;
-    if (url.protocol === "https:") return true;
-    return url.protocol === "http:" &&
-      (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
-  } catch {
-    return false;
-  }
-}
-
-function digest(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-export interface OAuthClientMetadata {
-  client_id: string;
-  client_name: string;
-  redirect_uris: string[];
-  token_endpoint_auth_method: "none";
-  grant_types: string[];
-  response_types: string[];
-  scope?: string;
-}
-
-/**
- * Dynamic Client Registration is stored in Postgres/PGLite. ChatGPT's
- * Client-ID Metadata Documents are also supported, but only from the
- * explicitly trusted chatgpt.com origin to avoid SSRF through arbitrary URLs.
- */
-/**
- * Public OAuth clients are registered dynamically and authenticate with PKCE.
- * Client ID Metadata Documents are not advertised until private_key_jwt assertions
- * are implemented and verified by the token endpoint.
- */
-export async function resolveMcpOAuthClient(clientId: string): Promise<OAuthClientMetadata | null> {
-  if (!clientId || clientId.length > 256 || clientId.startsWith("https://") || clientId.startsWith("http://")) return null;
-  try {
-    const sql = await getSql();
-    const rows = await sql.query<Record<string, unknown>>(
-      "SELECT client_id, client_name, redirect_uris_json, scope, grant_types_json FROM mcp_oauth_clients WHERE client_id = $1 LIMIT 1",
-      [clientId],
-    );
-    const row = rows[0];
-    if (!row) return null;
-    let redirectUris: unknown;
-    let grantTypes: unknown;
-    try {
-      redirectUris = JSON.parse(String(row.redirect_uris_json));
-      grantTypes = JSON.parse(String(row.grant_types_json || '[\"authorization_code\",\"refresh_token\"]'));
-    } catch {
-      return null;
-    }
-    if (!Array.isArray(redirectUris) || !redirectUris.every(isSafeOAuthRedirectUri) ||
-        !Array.isArray(grantTypes) ||
-        grantTypes.some((grant) => grant !== "authorization_code" && grant !== "refresh_token") ||
-        !grantTypes.includes("authorization_code")) return null;
-    return {
-      client_id: String(row.client_id),
-      client_name: String(row.client_name || "AI client"),
-      redirect_uris: redirectUris,
-      token_endpoint_auth_method: "none",
-      grant_types: grantTypes as string[],
-      response_types: ["code"],
-      scope: typeof row.scope === "string" ? row.scope : undefined,
-    };
-  } catch {
-    return null;
-  }
-}
 
 export async function registerMcpOAuthClient(input: {
   client_name?: unknown;

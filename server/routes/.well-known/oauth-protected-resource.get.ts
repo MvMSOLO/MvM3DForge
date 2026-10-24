@@ -1,9 +1,9 @@
 import { defineEventHandler, setHeader } from "h3";
-import { MCP_OAUTH_SCOPES, mcpPublicBaseUrl, mcpResourceUrl } from "../../utils/mcp-oauth.ts";
+import { MCP_OAUTH_SCOPES, mcpPublicBaseUrl, mcpResourceUrl } from "@/lib/mcp/oauth-config.ts";
 
-export default defineEventHandler(() => {
-  setHeader("Cache-Control", "public, max-age=300");
-  setHeader("Access-Control-Allow-Origin", "*");
+export default defineEventHandler((event) => {
+  setHeader(event, "Cache-Control", "public, max-age=300");
+  setHeader(event, "Access-Control-Allow-Origin", "*");
   return {
     resource: mcpResourceUrl(),
     authorization_servers: [mcpPublicBaseUrl()],
