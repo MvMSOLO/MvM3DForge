@@ -113,7 +113,11 @@ export default defineEventHandler(async (event) => {
       setResponseStatus(event, 503);
       return errorBody(-32000, auth.error || "MCP authentication is temporarily unavailable.");
     }
-    setHeader(event, "WWW-Authenticate", 'Bearer realm="mvm3d-mcp", error="invalid_token"');
+    setHeader(
+      event,
+      "WWW-Authenticate",
+      'Bearer realm="mvm3d-mcp", resource_metadata="https://mvm3d.vercel.app/.well-known/oauth-protected-resource/mcp", error="invalid_token"',
+    );
     setResponseStatus(event, 401);
     return errorBody(-32001, auth.error || "Authentication required.");
   }
