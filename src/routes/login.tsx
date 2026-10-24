@@ -14,17 +14,24 @@ import {
 import { authClient, authEnabled } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
-export const Route = createFileRoute("/login")({ component: LoginPage });
+export const Route = createFileRoute("/login")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    next: typeof search.next === "string" ? search.next : undefined,
+  }),
+  component: LoginPage,
+});
 
 type FormMode = "signin" | "signup";
 
-function getReturnPath(): string {
-  if (typeof window === "undefined") return "/studio";
-  const requested = new URLSearchParams(window.location.search).get("next");
+function getReturnPath(searchNext?: string): string {
+  const requested = searchNext ?? (
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("next")
+  );
   if (!requested || !requested.startsWith("/") || requested.startsWith("//")) return "/studio";
   try {
-    const target = new URL(requested, window.location.origin);
-    if (target.origin !== window.location.origin) return "/studio";
+    const origin = typeof window === "undefined" ? "https://mvm3d.vercel.app" : window.location.origin;
+    const target = new URL(requested, origin);
+    if (target.origin !== origin) return "/studio";
     return target.pathname + target.search + target.hash;
   } catch {
     return "/studio";
@@ -38,6 +45,9 @@ function isMcpOAuthReturnPath(path: string): boolean {
 }
 
 function LoginPage() {
+  const search = Route.useSearch();
+  const returnPath = getReturnPath(search.next);
+  const mcpOAuthConnect = isMcpOAuthReturnPath(returnPath);
   const { user, isPending } = useCurrentUserState();
   const [sessionCheckTimedOut, setSessionCheckTimedOut] = useState(false);
 
@@ -51,7 +61,6 @@ function LoginPage() {
     const timeout = window.setTimeout(() => setSessionCheckTimedOut(true), 4000);
     return () => window.clearTimeout(timeout);
   }, [isPending]);
-  const mcpOAuthConnect = isMcpOAuthReturnPath(getReturnPath());
   const [mode, setMode] = useState<FormMode>("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -82,7 +91,7 @@ function LoginPage() {
 
     setSubmitting(true);
     try {
-      const callbackURL = getReturnPath();
+      const callbackURL = returnPath;
       const result =
         mode === "signup"
           ? await authClient.signUp.email({
@@ -149,7 +158,7 @@ function LoginPage() {
             </div>
           </div>
 
-          {isPending && !sessionCheckTimedOut ? (
+          {isPending && !sessionCheckTimedOut && !mcpOAuthConnect ? (
             <div className="flex min-h-56 flex-col items-center justify-center gap-3 text-center">
               <LoaderCircle size={24} className="animate-spin text-[#83f0ce]" />
               <p className="text-sm text-[#a9b7c5]">Checking your session…</p>
@@ -165,7 +174,7 @@ function LoginPage() {
                   ? `${user.primaryEmail ?? user.displayName ?? "Your account"} is signed in. Continue to review and approve the AI client’s requested permissions.`
                   : `${user.primaryEmail ?? user.displayName ?? "Your account"} is ready to use.`}
               </p>
-              <a href={getReturnPath()} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-[#83f0ce] px-4 py-3 text-sm font-semibold text-[#071511] transition hover:bg-[#a1f7dc]">
+              <a href={returnPath} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-[#83f0ce] px-4 py-3 text-sm font-semibold text-[#071511] transition hover:bg-[#a1f7dc]">
                 {mcpOAuthConnect ? "Continue to permission review" : "Continue to Studio"}
               </a>
             </div>
