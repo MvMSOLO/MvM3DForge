@@ -1,17 +1,17 @@
 import { defineEventHandler, sendRedirect, setHeader, setResponseStatus } from "h3";
+import type { H3Event } from "h3";
 import {
   createMcpOAuthCode,
   getMcpOAuthSession,
   getRegisteredClient,
   isSafeOAuthRedirectUri,
   isSameOriginConsentRequest,
-  mcpPublicBaseUrl,
   mcpResourceUrl,
   normalizeOAuthScopes,
   readFormBody,
 } from "../../utils/mcp-oauth.ts";
 
-function errorPage(event: Parameters<Parameters<typeof defineEventHandler>[0]>[0], status: number, message: string) {
+function errorPage(event: H3Event, status: number, message: string) {
   setResponseStatus(event, status);
   setHeader(event, "Content-Type", "text/html; charset=utf-8");
   setHeader(event, "Cache-Control", "no-store");
