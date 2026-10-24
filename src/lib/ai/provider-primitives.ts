@@ -27,7 +27,7 @@ function normalizeModelId(value: string): string {
 }
 
 function isChatCapableModel(value: string): boolean {
-  return !/(embedding|rerank|moderation|whisper|transcrib|\btts\b|text-to-speech|image-generation|realtime-preview)/i.test(value);
+  return !/(embedding|rerank|moderation|whisper|transcrib|\btts\b|text-to-speech|image-generation|gpt-image|dall-e|sora|realtime|audio|speech)/i.test(value);
 }
 
 /** Normalizes common provider model-list response shapes without making network calls. */
