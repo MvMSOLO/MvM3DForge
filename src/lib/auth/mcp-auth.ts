@@ -96,7 +96,7 @@ export async function validateMcpRequestAuth(event: H3Event): Promise<McpAuthRes
     };
   }
 
-  return unauthenticated("Authentication required. Provide an MvM 3D Forge API key.");
+  return unauthenticated("Authentication required. Complete the MVM3D OAuth sign-in and consent flow in your MCP client.");
 }
 
 export function verifyProjectOwnership(userId: string, projectOwnerId?: string): boolean {

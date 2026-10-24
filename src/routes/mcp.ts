@@ -60,7 +60,7 @@ async function handleMcp(request: Request): Promise<Response> {
   if (!userId) {
     const resourceMetadata = "https://mvm3d.vercel.app/.well-known/oauth-protected-resource/mcp";
     return withCors(Response.json(
-      { error: "Authentication required. Connect through the MVM3D OAuth flow or use an MCP API key." },
+      { error: "Authentication required. Start the MVM3D OAuth sign-in and consent flow from your MCP client." },
       {
         status: 401,
         headers: {

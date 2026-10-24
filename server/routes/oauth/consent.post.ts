@@ -38,14 +38,21 @@ export default defineEventHandler(async (event) => {
   const challenge = body.code_challenge || "";
   const challengeMethod = body.code_challenge_method || "";
   const resource = body.resource || "";
-  const scopes = normalizeOAuthScopes(body.scope);
+  const requestedScopes = normalizeOAuthScopes(body.requested_scope);
+  const scopes = body.scope?.trim() ? normalizeOAuthScopes(body.scope) : [];
   const client = await getRegisteredClient(clientId);
 
   if (!client || !isSafeOAuthRedirectUri(redirectUri) || !client.redirect_uris.includes(redirectUri) ||
       !state || state.length > 1024 || challengeMethod !== "S256" ||
-      !/^[A-Za-z0-9_-]{43}$/.test(challenge) || !scopes ||
+      !/^[A-Za-z0-9_-]{43}$/.test(challenge) || !requestedScopes ||
       (resource && resource !== mcpResourceUrl())) {
     return errorPage(event, 400, "The authorization request is invalid or has expired.");
+  }
+  if (body.decision === "allow" && (!scopes || !scopes.length || scopes.some((scope) => !requestedScopes.includes(scope)))) {
+    return errorPage(event, 400, "Select at least one permission and only permissions requested by this client.");
+  }
+  if (body.decision !== "allow" && Array.isArray(scopes) && scopes.some((scope) => !requestedScopes.includes(scope))) {
+    return errorPage(event, 400, "The authorization request included an unrequested permission.");
   }
 
   if (body.decision !== "allow") {
