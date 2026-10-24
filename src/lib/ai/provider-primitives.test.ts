@@ -26,8 +26,8 @@ test("provider model parser accepts list and OpenAI-compatible data response sha
   ];
   const models = parseAiProviderModels("openai", direct);
   assert.deepEqual(models, [
-    { id: "gpt-4o-mini", name: "GPT-4o mini" },
     { id: "gpt-4.1", name: "GPT 4.1" },
+    { id: "gpt-4o-mini", name: "GPT-4o mini" },
   ]);
   assert.deepEqual(parseAiProviderModels("groq", { data: [{ id: "llama-3.3-70b-versatile" }] }), [
     { id: "llama-3.3-70b-versatile", name: "llama-3.3-70b-versatile" },
