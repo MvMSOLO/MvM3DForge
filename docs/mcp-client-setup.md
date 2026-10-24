@@ -20,7 +20,7 @@ The server publishes the OAuth authorization-server metadata at:
 - `https://mvm3d.vercel.app/.well-known/oauth-protected-resource`
 - `https://mvm3d.vercel.app/.well-known/oauth-protected-resource/mcp`
 
-The MCP endpoint returns a `401` `WWW-Authenticate` challenge that identifies the protected-resource metadata. The OAuth implementation supports authorization codes with PKCE S256, client metadata documents for ChatGPT, and dynamic client registration. Access tokens are audience-bound to `https://mvm3d.vercel.app/mcp`, include user and permission claims, and expire after one hour. Authorization codes are short-lived, single-use, and PKCE-verified.
+The MCP endpoint returns a `401` `WWW-Authenticate` challenge that identifies the protected-resource metadata. The OAuth implementation supports authorization codes with PKCE S256, Client ID Metadata Documents for ChatGPT, dynamic client registration, and RFC 9207 issuer identification. The authorization-server metadata advertises `authorization_response_iss_parameter_supported: true`; both successful and denied consent callbacks return `iss` matching the exact `issuer` value. Access tokens are audience-bound to `https://mvm3d.vercel.app/mcp`, include user and permission claims, and expire after one hour. Authorization codes are short-lived, single-use, and PKCE-verified.
 
 If ChatGPT reports that it cannot discover OAuth settings, first confirm these metadata URLs return JSON on the deployed production domain. If the endpoint returns `503`, check the persistent database and deployment configuration rather than switching to unauthenticated writes.
 
