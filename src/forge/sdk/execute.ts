@@ -32,6 +32,8 @@ import type {
 } from "../types.ts";
 import { validateScene } from "../validate.ts";
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 
 const PRELUDE = `"use strict";
 const fetch = undefined;
@@ -40,6 +42,85 @@ const WebSocket = undefined;
 const importScripts = undefined;
 const indexedDB = undefined;
 `;
+
+/**
+ * Script loaders may only request app-owned static model/texture assets or
+ * in-memory data/blob URLs. Keep third-party network requests inaccessible
+ * even when an imported Three.js loader uses FileLoader internally.
+ */
+function sandboxAssetUrl(rawUrl: string): string {
+  const value = String(rawUrl).trim();
+  if (/^(?:data|blob):/i.test(value)) return value;
+  if (typeof window === "undefined") {
+    throw new Error("Sandbox loaders can only use data:/blob: URLs in a non-browser runtime.");
+  }
+
+  let resolved: URL;
+  try {
+    resolved = new URL(value, window.location.origin);
+  } catch {
+    throw new Error("Invalid asset URL. Use an app-owned /assets/, /models/, or /textures/ path.");
+  }
+
+  if (resolved.origin !== window.location.origin) {
+    throw new Error("External asset URLs are blocked in the script sandbox. Import the asset into MVM3D or use an app-owned static asset.");
+  }
+  if (!/^\/(?:assets|models|textures)\//i.test(resolved.pathname)) {
+    throw new Error("Sandbox loaders may only read same-origin /assets/, /models/, or /textures/ files.");
+  }
+  return resolved.href;
+}
+
+function createSandboxLoadingManager(): THREE.LoadingManager {
+  const manager = new THREE.LoadingManager();
+  manager.setURLModifier((url) => sandboxAssetUrl(url));
+  return manager;
+}
+
+class SandboxFileLoader extends THREE.FileLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxImageLoader extends THREE.ImageLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxTextureLoader extends THREE.TextureLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxCubeTextureLoader extends THREE.CubeTextureLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxGLTFLoader extends GLTFLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+class SandboxOBJLoader extends OBJLoader {
+  constructor() {
+    super(createSandboxLoadingManager());
+  }
+}
+
+type ScriptThreeRuntime = typeof THREE & {
+  FileLoader: typeof SandboxFileLoader;
+  ImageLoader: typeof SandboxImageLoader;
+  TextureLoader: typeof SandboxTextureLoader;
+  CubeTextureLoader: typeof SandboxCubeTextureLoader;
+  GLTFLoader: typeof SandboxGLTFLoader;
+  OBJLoader: typeof SandboxOBJLoader;
+};
 
 type Internal = {
   node: SceneNode;
@@ -1399,12 +1480,22 @@ export async function executeUserCode(code: string): Promise<RunResult> {
 
   // Expose all normal Three.js constructors with only Mesh adapted. Native BufferGeometry
   // + THREE.Material pairs continue to use the exact regular Three.js behavior.
-  const runtimeTHREE = Object.create(THREE) as typeof THREE;
-  Object.defineProperty(runtimeTHREE, "Mesh", {
-    configurable: true,
-    enumerable: true,
-    value: ForgeCompatibleMesh,
-  });
+  const runtimeTHREE = Object.create(THREE) as ScriptThreeRuntime;
+  for (const [name, value] of [
+    ["Mesh", ForgeCompatibleMesh],
+    ["FileLoader", SandboxFileLoader],
+    ["ImageLoader", SandboxImageLoader],
+    ["TextureLoader", SandboxTextureLoader],
+    ["CubeTextureLoader", SandboxCubeTextureLoader],
+    ["GLTFLoader", SandboxGLTFLoader],
+    ["OBJLoader", SandboxOBJLoader],
+  ] as const) {
+    Object.defineProperty(runtimeTHREE, name, {
+      configurable: true,
+      enumerable: true,
+      value,
+    });
+  }
 
   function attributeValues(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, itemSize: number, label: string): number[] {
     if (attribute.itemSize < itemSize) {
@@ -1624,7 +1715,7 @@ export async function executeUserCode(code: string): Promise<RunResult> {
   try {
     const fn = new Function("mvm", "THREE", "scene", "console", PRELUDE + code) as (
       mvm: typeof api,
-      threeRuntime: typeof THREE,
+      threeRuntime: ScriptThreeRuntime,
       scene: THREE.Scene,
       console: typeof scriptConsole,
     ) => unknown;
