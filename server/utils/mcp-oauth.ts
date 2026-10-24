@@ -38,10 +38,36 @@ export {
 export type { McpOAuthScope };
 
 export function requestHeaders(event: H3Event): Headers {
-  // Read through H3's web request abstraction, not a Node request handle.
-  // Vercel's Web/Nitro adapter may not expose Node handles, but the browser
-  // cookie is still required for the OAuth login -> consent handoff.
+  // Vercel's Nitro/Web adapter shape differs between local Node and production.
+  // Read the complete Web Request headers first, then fall back to H3 and the
+  // legacy Node adapter. Losing Cookie here creates an OAuth login loop.
   const headers = new Headers();
+  const compatible = event as unknown as {
+    req?: { headers?: Headers | Record<string, string | string[] | undefined> };
+    web?: { request?: Request };
+    runtime?: { node?: { req?: { headers?: Record<string, string | string[] | undefined> } } };
+    node?: { req?: { headers?: Record<string, string | string[] | undefined> } };
+  };
+
+  const copyHeaders = (source: Headers | Record<string, string | string[] | undefined> | undefined) => {
+    if (!source) return;
+    if (typeof (source as Headers).forEach === "function") {
+      (source as Headers).forEach((value, name) => {
+        if (!headers.has(name)) headers.set(name, value);
+      });
+      return;
+    }
+    for (const [name, raw] of Object.entries(source)) {
+      if (raw === undefined || headers.has(name)) continue;
+      headers.set(name, Array.isArray(raw) ? raw.join(", ") : raw);
+    }
+  };
+
+  copyHeaders(compatible.req?.headers);
+  copyHeaders(compatible.web?.request?.headers);
+  copyHeaders(compatible.runtime?.node?.req?.headers);
+  copyHeaders(compatible.node?.req?.headers);
+
   for (const name of [
     "authorization",
     "cookie",
@@ -53,6 +79,7 @@ export function requestHeaders(event: H3Event): Headers {
     "x-forwarded-proto",
     "content-type",
   ]) {
+    if (headers.has(name)) continue;
     const value = getHeader(event, name);
     if (value) headers.set(name, value);
   }
@@ -74,14 +101,27 @@ export function isSameOriginConsentRequest(event: H3Event): boolean {
 }
 
 export async function getMcpOAuthSession(event: H3Event): Promise<{ id: string; name: string } | null> {
+  const headers = requestHeaders(event);
   try {
-    const session = await auth.api.getSession({ headers: requestHeaders(event) });
-    if (!session?.user?.id) return null;
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user?.id) {
+      // Log only presence metadata, never session cookies, tokens, or user IDs.
+      console.warn("[mcp-oauth] authorize session missing", {
+        host: headers.get("x-forwarded-host") || headers.get("host") || "unknown",
+        hasCookieHeader: Boolean(headers.get("cookie")),
+        hasSessionCookie: /(?:^|;\s*)__Host-grok-auth\.session_token=/.test(headers.get("cookie") || ""),
+      });
+      return null;
+    }
     return {
       id: session.user.id,
       name: typeof session.user.name === "string" && session.user.name.trim() ? session.user.name.trim() : "MVM3D user",
     };
-  } catch {
+  } catch (error) {
+    console.error("[mcp-oauth] authorize session lookup failed", {
+      message: error instanceof Error ? error.message : "Unknown session lookup error",
+      hasCookieHeader: Boolean(headers.get("cookie")),
+    });
     return null;
   }
 }
