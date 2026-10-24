@@ -132,9 +132,11 @@ export function AIProviderPanel({
       });
       const body = await readJson(response);
       if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "Provider connection failed.");
-      const connectedRow = body.connection as ProviderRow | undefined;
+      const rawConnection = body.connection as (Omit<ProviderRow, "id"> & { id?: ProviderId; provider?: ProviderId }) | undefined;
       const modelRows = Array.isArray(body.models) ? body.models as ProviderModel[] : [];
-      if (!connectedRow) throw new Error("Provider response was incomplete. Retry the connection.");
+      const connectionId = rawConnection?.id ?? rawConnection?.provider;
+      if (!rawConnection || connectionId !== provider) throw new Error("Provider response was incomplete. Retry the connection.");
+      const connectedRow: ProviderRow = { ...rawConnection, id: connectionId };
       setProviders((previous) => [...previous.filter((item) => item.id !== provider), connectedRow]);
       setModels(modelRows);
       setSelectedModel(connectedRow.preferredModel || modelRows[0]?.id || "");
@@ -162,7 +164,10 @@ export function AIProviderPanel({
       });
       const body = await readJson(response);
       if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "Could not save selected model.");
-      const row = body.connection as ProviderRow;
+      const rawConnection = body.connection as (Omit<ProviderRow, "id"> & { id?: ProviderId; provider?: ProviderId }) | undefined;
+      const connectionId = rawConnection?.id ?? rawConnection?.provider;
+      if (!rawConnection || connectionId !== provider) throw new Error("The saved model response was incomplete. Retry selecting the model.");
+      const row: ProviderRow = { ...rawConnection, id: connectionId };
       setProviders((previous) => previous.map((item) => item.id === provider ? row : item));
       setNotice(`Selected model: ${model}`);
       onStatus(`${selectedProvider.name} model selected`);
