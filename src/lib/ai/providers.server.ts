@@ -2,14 +2,9 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { getSql } from "@/lib/db";
 import { mcpOAuthSigningSecret } from "@/lib/auth/server";
 
-import { AI_PROVIDERS, isAiProviderId, type AiProviderId, type AiProviderKind } from "./provider-primitives.ts";
+import { AI_PROVIDERS, isAiProviderId, parseAiProviderModels, type AiModel, type AiProviderId, type AiProviderKind } from "./provider-primitives.ts";
 export { AI_PROVIDERS, isAiProviderId } from "./provider-primitives.ts";
-export type { AiProviderId, AiProviderKind } from "./provider-primitives.ts";
-
-export interface AiModel {
-  id: string;
-  name: string;
-}
+export type { AiModel, AiProviderId, AiProviderKind } from "./provider-primitives.ts";
 
 export interface AiProviderConnection {
   id: string;
@@ -143,24 +138,8 @@ export async function discoverAiModels(provider: AiProviderId, apiKey: string): 
     }
     throw new Error(parseProviderError(error, `Provider model discovery failed (HTTP ${response.status}).`));
   }
-  const body = await response.json() as Record<string, unknown>;
-  const raw = provider === "google"
-    ? (Array.isArray(body.models) ? body.models : [])
-    : (Array.isArray(body.data) ? body.data : Array.isArray(body.models) ? body.models : []);
-  const byId = new Map<string, AiModel>();
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const row = item as Record<string, unknown>;
-    const rawId = typeof row.id === "string" ? row.id : typeof row.name === "string" ? row.name : "";
-    const id = normalizeModelName(rawId);
-    if (!id || id.length > 240 || !modelIsChatCapable(id)) continue;
-    if (provider === "google") {
-      const methods = row.supportedGenerationMethods;
-      if (Array.isArray(methods) && !methods.includes("generateContent")) continue;
-    }
-    byId.set(id, { id, name: userFacingModelName(id, typeof row.displayName === "string" ? row.displayName : undefined) });
-  }
-  const models = [...byId.values()].sort((a, b) => a.id.localeCompare(b.id)).slice(0, 250);
+  const payload: unknown = await response.json();
+  const models = parseAiProviderModels(provider, payload);
   if (!models.length) throw new Error("The provider authenticated, but did not return any supported chat models.");
   return models;
 }
