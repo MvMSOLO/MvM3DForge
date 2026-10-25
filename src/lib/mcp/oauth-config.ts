@@ -19,7 +19,7 @@ export function mcpPublicBaseUrl(): string {
   const deploymentHost = process.env.VERCEL_URL?.trim();
   const systemHost = projectHost || deploymentHost;
   const inferredBase = systemHost
-    ? `https://${systemHost.replace(/^https?:\\/\\//i, "")}`
+    ? `https://${systemHost.replace(/^https?:\/\//i, "")}`
     : "https://mvm3d.vercel.app";
   let base = configured || inferredBase;
   while (base.endsWith("/")) base = base.slice(0, -1);
