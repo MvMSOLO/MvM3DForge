@@ -17,10 +17,12 @@ function errorPage(event: H3Event, status: number, message: string) {
   setResponseStatus(event, status);
   setHeader(event, "Content-Type", "text/html; charset=utf-8");
   setHeader(event, "Cache-Control", "no-store");
-  const safe = message.replace(/[&<>"']/g, (character) => ({
+  const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[character] || character);
-  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>MVM3D OAuth</title><body style="background:#081018;color:#eaf2f8;font:16px system-ui;padding:32px"><main style="max-width:620px;margin:8vh auto"><h1>Authorization not completed</h1><p>${safe}</p><p>Return to the AI client and retry Connect. If the problem persists, this screen now identifies the failure rather than silently doing nothing.</p><a style="color:#83f0ce" href="https://mvm3d.vercel.app">Return to MVM3D</a></main></body></html>`;
+  const safe = escapeHtml(message);
+  const safeHomeUrl = escapeHtml(mcpPublicBaseUrl());
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>MVM3D OAuth</title><body style="background:#081018;color:#eaf2f8;font:16px system-ui;padding:32px"><main style="max-width:620px;margin:8vh auto"><h1>Authorization not completed</h1><p>${safe}</p><p>Return to the AI client and retry Connect. If the problem persists, this screen now identifies the failure rather than silently doing nothing.</p><a style="color:#83f0ce" href="${safeHomeUrl}">Return to MVM3D</a></main></body></html>`;
 }
 
 function redirectAfterPost(event: H3Event, location: string) {
@@ -196,14 +198,27 @@ export default defineEventHandler(async (event) => {
     return redirectAfterPost(event, `/login?next=${encodeURIComponent("/oauth/authorize?" + search.toString())}`);
   }
 
+  let code: string;
   try {
-    const code = await createMcpOAuthCode({
+    code = await createMcpOAuthCode({
       clientId,
       userId: session.id,
       redirectUri,
       challenge,
       scopes,
     });
+  } catch (error) {
+    const details = error as { name?: unknown; code?: unknown; message?: unknown } | null;
+    console.error("[mcp-oauth] authorization-code persistence failed", {
+      errorName: typeof details?.name === "string" ? details.name.slice(0, 120) : "UnknownError",
+      databaseErrorCode: typeof details?.code === "string" ? details.code.slice(0, 32) : null,
+      message: error instanceof Error ? error.message.slice(0, 500) : "Unknown authorization-code persistence error",
+      elapsedMs: Date.now() - startedAt,
+    });
+    return errorPage(event, 503, "MVM3D could not save the authorization code. Please retry Connect.");
+  }
+
+  try {
     const callback = new URL(redirectUri);
     callback.searchParams.set("code", code);
     callback.searchParams.set("state", state);
@@ -211,15 +226,17 @@ export default defineEventHandler(async (event) => {
 
     console.info("[mcp-oauth] authorization code stored; redirecting to client", {
       callback: safeCallbackDescription(callback.toString()),
-      scopeCount: scopes.length,
+      selectedScopeCount: scopes.length,
       elapsedMs: Date.now() - startedAt,
     });
     return redirectAfterPost(event, callback.toString());
   } catch (error) {
-    console.error("[mcp-oauth] authorization-code issuance failed", {
-      message: error instanceof Error ? error.message : "Unknown authorization-code error",
+    const details = error as { name?: unknown; code?: unknown; message?: unknown } | null;
+    console.error("[mcp-oauth] authorization callback preparation failed", {
+      errorName: typeof details?.name === "string" ? details.name.slice(0, 120) : "UnknownError",
+      message: error instanceof Error ? error.message.slice(0, 500) : "Unknown authorization callback error",
       elapsedMs: Date.now() - startedAt,
     });
-    return errorPage(event, 503, "MVM3D could not issue an authorization code. Please retry Connect.");
+    return errorPage(event, 503, "MVM3D saved the authorization code but could not prepare the return to your AI client. Disconnect and reconnect MVM3D, then retry.");
   }
 });
