@@ -57,6 +57,7 @@ function normalizeConfiguredHost(value: string | undefined, allowLocalHttp: bool
     if (
       url.username ||
       url.password ||
+      url.hostname.includes("*") ||
       url.pathname !== "/" ||
       url.search ||
       url.hash ||
@@ -79,6 +80,7 @@ function parseOrigin(value: string, allowLocalHttp: boolean): URL | null {
     if (
       url.username ||
       url.password ||
+      url.hostname.includes("*") ||
       url.pathname !== "/" ||
       url.search ||
       url.hash ||
