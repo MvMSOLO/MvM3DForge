@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-const origin = new URL(process.env.MCP_SMOKE_ORIGIN || "https://3dmvm.vercel.app");
+const origin = new URL(process.env.MCP_SMOKE_ORIGIN || "https://mvm3d.vercel.app");
 assert.equal(origin.protocol, "https:", "MCP_SMOKE_ORIGIN must use HTTPS");
 assert.equal(origin.pathname, "/", "MCP_SMOKE_ORIGIN must be an origin, not a path");
 const base = origin.origin;

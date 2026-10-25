@@ -32,7 +32,7 @@ export function mcpPublicBaseUrl(): string {
     : isPreview
       ? ""
       : process.env.NODE_ENV === "production"
-        ? "https://3dmvm.vercel.app"
+        ? "https://mvm3d.vercel.app"
         : "http://localhost:8080";
 
   let base = configured || inferredBase;

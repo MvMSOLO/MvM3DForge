@@ -34,8 +34,8 @@ test("explicit MCP_PUBLIC_URL takes precedence in every environment", () => {
   withEnv({
     MCP_PUBLIC_URL: "https://preview.example.test/",
     VERCEL_ENV: "preview",
-    VERCEL_PROJECT_PRODUCTION_URL: "3dmvm.vercel.app",
-    VERCEL_BRANCH_URL: "3dmvm-git-review.vercel.app",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_BRANCH_URL: "mvm3d-git-review.vercel.app",
   }, () => {
     assert.equal(mcpPublicBaseUrl(), "https://preview.example.test");
     assert.equal(mcpResourceUrl(), "https://preview.example.test/mcp");
@@ -45,29 +45,29 @@ test("explicit MCP_PUBLIC_URL takes precedence in every environment", () => {
 test("preview uses its branch host rather than the production project host", () => {
   withEnv({
     VERCEL_ENV: "preview",
-    VERCEL_PROJECT_PRODUCTION_URL: "3dmvm.vercel.app",
-    VERCEL_BRANCH_URL: "3dmvm-git-feature-123.vercel.app",
-    VERCEL_URL: "3dmvm-deployment-456.vercel.app",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_BRANCH_URL: "mvm3d-git-feature-123.vercel.app",
+    VERCEL_URL: "mvm3d-deployment-456.vercel.app",
   }, () => {
-    assert.equal(mcpPublicBaseUrl(), "https://3dmvm-git-feature-123.vercel.app");
+    assert.equal(mcpPublicBaseUrl(), "https://mvm3d-git-feature-123.vercel.app");
   });
 });
 
 test("preview falls back to its deployment host when no branch host exists", () => {
   withEnv({
     VERCEL_ENV: "preview",
-    VERCEL_PROJECT_PRODUCTION_URL: "3dmvm.vercel.app",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
     VERCEL_BRANCH_URL: undefined,
-    VERCEL_URL: "3dmvm-deployment-456.vercel.app",
+    VERCEL_URL: "mvm3d-deployment-456.vercel.app",
   }, () => {
-    assert.equal(mcpPublicBaseUrl(), "https://3dmvm-deployment-456.vercel.app");
+    assert.equal(mcpPublicBaseUrl(), "https://mvm3d-deployment-456.vercel.app");
   });
 });
 
 test("preview fails closed instead of borrowing production when no preview host is available", () => {
   withEnv({
     VERCEL_ENV: "preview",
-    VERCEL_PROJECT_PRODUCTION_URL: "3dmvm.vercel.app",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
     VERCEL_BRANCH_URL: undefined,
     VERCEL_URL: undefined,
   }, () => {
@@ -75,14 +75,27 @@ test("preview fails closed instead of borrowing production when no preview host 
   });
 });
 
+test("production fallback uses mvm3d.vercel.app when Vercel host metadata is absent", () => {
+  withEnv({
+    NODE_ENV: "production",
+    VERCEL_ENV: "production",
+    VERCEL_PROJECT_PRODUCTION_URL: undefined,
+    VERCEL_BRANCH_URL: undefined,
+    VERCEL_URL: undefined,
+  }, () => {
+    assert.equal(mcpPublicBaseUrl(), "https://mvm3d.vercel.app");
+    assert.equal(mcpResourceUrl(), "https://mvm3d.vercel.app/mcp");
+  });
+});
+
 test("production fallback uses the stable production project host", () => {
   withEnv({
     VERCEL_ENV: "production",
-    VERCEL_PROJECT_PRODUCTION_URL: "3dmvm.vercel.app",
-    VERCEL_URL: "3dmvm-deployment-456.vercel.app",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_URL: "mvm3d-deployment-456.vercel.app",
     VERCEL_BRANCH_URL: undefined,
   }, () => {
-    assert.equal(mcpPublicBaseUrl(), "https://3dmvm.vercel.app");
+    assert.equal(mcpPublicBaseUrl(), "https://mvm3d.vercel.app");
   });
 });
 
