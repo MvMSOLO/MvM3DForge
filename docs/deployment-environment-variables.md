@@ -26,6 +26,19 @@ The Vercel project was inspected without decrypting secrets:
 - Read-only checks of `https://mvm3d.vercel.app/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource` return HTTP 200 and advertise `https://mvm3d.vercel.app` as the issuer/resource origin. `GET /api/auth/get-session` returns HTTP 200 with `null` for an unauthenticated visitor. These checks do not replace a signed-in OAuth/token/MCP end-to-end test.
 - No environment values were changed and no secrets were decrypted, copied, or exposed.
 
+## Origin/domain policy (Task 10)
+
+The active Vercel project `mvm3d` was inspected read-only. Its domain metadata identifies `https://mvm3d.vercel.app` as the verified public domain and lists the project aliases `mvm3d-mvmsolos-projects.vercel.app` and `mvm3d-git-main-mvmsolos-projects.vercel.app`. The code keeps `https://mvm3d.vercel.app` as the canonical OAuth/MCP issuer; the two generated aliases are exact browser-origin entries only, not replacement issuers. The separate `3dmvm` and `mvm3dforge` projects are not MVM3D's Production origins.
+
+- Production Better Auth origin checks use the canonical domain, the two exact audited project aliases, and only exact `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` values that validate as HTTPS `*.vercel.app` hosts. There is no wildcard allowing arbitrary `*.vercel.app` origins.
+- Vercel Preview trusts only its own exact branch/deployment host. It does not inherit the Production project origin, a branch host from another deployment, or a stale `BETTER_AUTH_URL` that points at Production.
+- The `https://*.grok-sandbox.com` wildcard is retained only for the non-Vercel workspace-preview mode that needs dynamic sign-in callbacks. It is HTTPS-only and is not enabled in Vercel Preview or Production.
+- Credentialed OAuth consent POSTs must provide an allowed `Origin` (or, for embedded clients that omit it, a strict same-origin `Referer`) matching the effective public host. Missing both, `Origin: null`, malformed URLs, foreign origins, and forwarded-host mismatches are rejected.
+- Production `MCP_PUBLIC_URL`, when explicitly set, must match the canonical or exact platform-reported Production origin. In Vercel Preview it must match that Preview's branch/deployment origin; a stale Production value or another project's alias fails closed.
+- Root-origin configuration values reject paths, query strings, fragments, credentials, non-local HTTP, and comma-separated host lists. Local HTTP is limited to loopback addresses.
+
+During the read-only environment audit, `BETTER_AUTH_URL` and `MCP_PUBLIC_URL` were not present in the visible project-variable list; only the sensitive Production database variable appeared. Values were not decrypted or changed. Therefore the code's canonical fallback remains appropriate, and no stale alias needed to be removed from the live environment.
+
 ## Required Vercel dashboard steps
 
 1. Open the Vercel team that owns the active `mvm3d` project, then **Project → Settings → Environment Variables**.
