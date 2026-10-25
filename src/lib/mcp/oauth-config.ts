@@ -53,6 +53,7 @@ function vercelOrigin(value: string | undefined): string | undefined {
       parsed.search ||
       parsed.hash ||
       parsed.port ||
+      parsed.hostname.includes("*") ||
       !parsed.hostname.toLowerCase().endsWith(".vercel.app")
     ) return undefined;
     return parsed.origin.toLowerCase();
