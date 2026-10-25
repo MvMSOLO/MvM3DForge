@@ -7,7 +7,6 @@ import { mcpPublicBaseUrl } from "@/lib/mcp/oauth-config";
 import { inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 import {
   isTrustedHost,
-  isTrustedOrigin,
   normalizeConfiguredOrigin,
   normalizeHostHeader,
   resolveAuthOriginPolicy,
@@ -72,9 +71,9 @@ function originAllowed(event: H3Event): boolean {
   const origin = normalizeConfiguredOrigin(rawOrigin, {
     allowHttpLocal: !policy.isProduction && !policy.isVercelPreview,
   });
-  if (!origin || !isTrustedOrigin(origin, policy.trustedOrigins)) return false;
+  if (!origin) return false;
   const effectiveOrigin = requestOrigin(event);
-  if (effectiveOrigin && origin === effectiveOrigin) return true;
+  if (effectiveOrigin && origin === effectiveOrigin && hostAllowed(event)) return true;
 
   const configured = (process.env.MCP_ALLOWED_ORIGINS || "")
     .split(",")
@@ -128,7 +127,7 @@ export default defineEventHandler(async (event) => {
 
   if (method === "OPTIONS") {
     if (!hostAllowed(event) || !originAllowed(event)) {
-      return jsonRpcError(403, -32003, "Origin or host is not allowed.", origin);
+      return jsonRpcError(403, -32003, "Origin or host is not allowed.");
     }
     return withCors(new Response(null, { status: 204 }), origin);
   }
@@ -136,9 +135,9 @@ export default defineEventHandler(async (event) => {
   if (!["GET", "POST", "DELETE"].includes(method)) {
     return jsonRpcError(405, -32000, "Method not allowed.", origin, { Allow: "GET, POST, DELETE, OPTIONS" });
   }
-  if (!hostAllowed(event)) return jsonRpcError(403, -32003, "Untrusted Host header.", origin);
+  if (!hostAllowed(event)) return jsonRpcError(403, -32003, "Untrusted Host header.");
   if (!originAllowed(event)) {
-    return jsonRpcError(403, -32003, "Origin is not allowed. Configure MCP_ALLOWED_ORIGINS for trusted browser clients.", origin);
+    return jsonRpcError(403, -32003, "Origin is not allowed. Configure MCP_ALLOWED_ORIGINS for trusted browser clients.");
   }
 
   // Check both connectivity and required schema before auth/token reads. The
