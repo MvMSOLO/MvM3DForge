@@ -2,9 +2,9 @@ import { defineEventHandler, getHeader, getMethod, readBody } from "h3";
 import type { H3Event } from "h3";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createPersistedMcpServer } from "@/forge/remote-mcp-server";
-import { dbSource } from "@/lib/db";
 import { validateMcpRequestAuth } from "@/lib/auth/mcp-auth";
 import { mcpPublicBaseUrl } from "@/lib/mcp/oauth-config";
+import { inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 
 const DEFAULT_ORIGIN = mcpPublicBaseUrl();
 const DEFAULT_HOSTS = [
@@ -105,10 +105,11 @@ export default defineEventHandler(async (event) => {
     return jsonRpcError(403, -32003, "Origin is not allowed. Configure MCP_ALLOWED_ORIGINS for trusted browser clients.", origin);
   }
 
-  // A serverless process-local database is not durable. Do not allow OAuth
-  // registrations or project mutations to silently use ephemeral storage.
-  if (process.env.NODE_ENV === "production" && dbSource !== "neon") {
-    return jsonRpcError(503, -32000, "Remote MCP requires a persistent DATABASE_URL. Configure the production Postgres connection.", origin);
+  // Check both connectivity and required schema before auth/token reads. The
+  // public JSON-RPC error is sanitized; the server-only probe logs the category.
+  const readiness = await inspectDatabaseReadiness();
+  if (!readiness.ok) {
+    return jsonRpcError(503, -32000, readiness.publicMessage, origin);
   }
 
   const auth = await validateMcpRequestAuth(event);
