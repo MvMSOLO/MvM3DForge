@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   CANONICAL_PRODUCTION_ORIGIN,
+  isTrustedHost,
   isTrustedOrigin,
   isTrustedSameOriginPost,
+  normalizeHostHeader,
   resolveAuthOriginPolicy,
 } from "./origin-policy.ts";
 
@@ -91,6 +93,7 @@ test("workspace preview keeps its required HTTPS wildcard, but not arbitrary ori
   });
 
   assert.ok(policy.trustedOrigins.includes("https://*.grok-sandbox.com"));
+  assert.equal(policy.trustedOrigins.includes("*.grok-sandbox.com"), false, "schemeless sandbox wildcard must not enable HTTP");
   assert.equal(isTrustedOrigin("https://studio-123.grok-sandbox.com", policy.trustedOrigins), true);
   assert.equal(isTrustedOrigin("http://studio-123.grok-sandbox.com", policy.trustedOrigins), false);
   assert.equal(isTrustedOrigin("https://grok-sandbox.com", policy.trustedOrigins), false);
@@ -175,4 +178,29 @@ test("Preview consent works on the verified branch host and rejects production a
     forwardedHost: "mvm3d-git-task-10-mvmsolos-projects.vercel.app",
     forwardedProto: "https",
   }, policy), false);
+});
+
+test("host allow-list uses exact hosts and rejects stale projects and wildcard overrides", () => {
+  const policy = resolveAuthOriginPolicy({
+    nodeEnv: "production",
+    vercelEnvironment: "production",
+    vercelProjectProductionUrl: "mvm3d.vercel.app",
+  });
+
+  assert.equal(isTrustedHost("mvm3d.vercel.app", policy.allowedHosts), true);
+  assert.equal(isTrustedHost("mvm3d-mvmsolos-projects.vercel.app", policy.allowedHosts), true);
+  assert.equal(isTrustedHost("mvm3d-random-mvmsolos-projects.vercel.app", policy.allowedHosts), false);
+  assert.equal(isTrustedHost("3dmvm.vercel.app", policy.allowedHosts), false);
+  assert.equal(isTrustedHost("attacker.example", policy.allowedHosts), false);
+  assert.equal(normalizeHostHeader("mvm3d.vercel.app/path"), undefined);
+  assert.equal(normalizeHostHeader("attacker@ mvm3d.vercel.app"), undefined);
+  assert.equal(normalizeHostHeader("*.vercel.app"), undefined);
+  assert.equal(isTrustedHost("studio-123.grok-sandbox.com", policy.allowedHosts), false);
+});
+
+test("workspace host wildcard accepts HTTPS subdomains only", () => {
+  const policy = resolveAuthOriginPolicy({ nodeEnv: "development" });
+  assert.equal(isTrustedHost("studio-123.grok-sandbox.com", policy.allowedHosts), true);
+  assert.equal(isTrustedHost("grok-sandbox.com", policy.allowedHosts), false);
+  assert.equal(isTrustedHost("attacker.example", policy.allowedHosts), false);
 });
