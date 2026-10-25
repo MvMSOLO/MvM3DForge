@@ -4,6 +4,7 @@ import { createPersistedMcpServer } from "@/forge/remote-mcp-server.ts";
 import { authenticateMcpApiKey } from "@/lib/mcp/api-keys.server.ts";
 import { verifyMcpOAuthAccessToken } from "@/lib/mcp/oauth.server.ts";
 import { dbSource } from "@/lib/db.ts";
+import { mcpPublicBaseUrl } from "@/lib/mcp/oauth-config.ts";
 function corsHeaders(): Headers {
   return new Headers({
     "access-control-allow-origin": "*",
@@ -63,7 +64,7 @@ async function handleMcp(request: Request): Promise<Response> {
   }
 
   if (!userId) {
-    const resourceMetadata = "https://mvm3d.vercel.app/.well-known/oauth-protected-resource/mcp";
+    const resourceMetadata = `${mcpPublicBaseUrl()}/.well-known/oauth-protected-resource/mcp`;
     console.warn("[mcp] request rejected: missing or invalid bearer credential", {
       method: request.method,
       credentialType: keyMatch ? "api-key" : oauthMatch ? "oauth" : authorization.startsWith("Bearer ") ? "unknown-bearer" : "missing",
