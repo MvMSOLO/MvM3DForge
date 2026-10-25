@@ -55,7 +55,7 @@ function requestOrigin(event: H3Event): string | undefined {
   if (!host) return undefined;
   const forwardedProto = firstHeader(event, "x-forwarded-proto")?.toLowerCase();
   if (forwardedProto && forwardedProto !== "https" && forwardedProto !== "http") return undefined;
-  const local = ["localhost", "127.0.0.1", "[::1]"].includes(host.replace(/:\\d+$/, "").toLowerCase());
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(host.replace(/:\d+$/, "").toLowerCase());
   const protocol = forwardedProto || (local ? "http" : "https");
   return normalizeConfiguredOrigin(protocol + "://" + host, {
     allowHttpLocal: !policy.isProduction && !policy.isVercelPreview,
