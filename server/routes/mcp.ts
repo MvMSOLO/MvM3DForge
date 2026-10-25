@@ -5,48 +5,84 @@ import { createPersistedMcpServer } from "@/forge/remote-mcp-server";
 import { validateMcpRequestAuth } from "@/lib/auth/mcp-auth";
 import { mcpPublicBaseUrl } from "@/lib/mcp/oauth-config";
 import { inspectDatabaseReadiness } from "@/lib/db-readiness.server";
+import {
+  isTrustedHost,
+  isTrustedOrigin,
+  normalizeConfiguredOrigin,
+  normalizeHostHeader,
+  resolveAuthOriginPolicy,
+} from "@/lib/auth/origin-policy";
 
-const DEFAULT_ORIGIN = mcpPublicBaseUrl();
-const DEFAULT_HOSTS = [
-  "mvm3d.vercel.app",
-  "mvm3d-mvmsolos-projects.vercel.app",
-  "mvm3d-git-main-mvmsolos-projects.vercel.app",
-  "3dmvm.vercel.app",
-  "3dmvm-itechavazbek-5127.vercel.app",
-  "3dmvm-git-main-itechavazbek-5127.vercel.app",
-];
-
-function configuredList(value: string | undefined, fallback: string[]): string[] {
-  const parsed = value?.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean) ?? [];
-  return parsed.length ? parsed : fallback;
+function authOriginPolicy() {
+  return resolveAuthOriginPolicy({
+    nodeEnv: process.env.NODE_ENV,
+    vercelEnvironment: process.env.VERCEL_ENV,
+    vercelUrl: process.env.VERCEL_URL,
+    vercelBranchUrl: process.env.VERCEL_BRANCH_URL,
+    vercelProjectProductionUrl: process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    explicitBaseURL: process.env.BETTER_AUTH_URL,
+    grokProjectId: process.env.GROK_PROJECT_ID,
+  });
 }
 
+function firstHeader(event: H3Event, name: string): string | undefined {
+  return getHeader(event, name)?.split(",")[0]?.trim() || undefined;
+}
+
+/** Prefer Vercel's public forwarded alias over its internal deployment Host. */
 function getRequestHost(event: H3Event): string {
-  const host = getHeader(event, "host") || getHeader(event, "x-forwarded-host") || "";
-  return host.toLowerCase().split(":")[0];
-}
-
-function originAllowed(event: H3Event): boolean {
-  const origin = getHeader(event, "origin");
-  if (!origin) return true;
-  let parsed: URL;
-  try {
-    parsed = new URL(origin);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") return false;
-  const allowed = configuredList(process.env.MCP_ALLOWED_ORIGINS, [DEFAULT_ORIGIN]);
-  return parsed.hostname.toLowerCase() === getRequestHost(event) || allowed.includes(parsed.origin.toLowerCase());
+  return firstHeader(event, "x-forwarded-host") || firstHeader(event, "host") || "";
 }
 
 function hostAllowed(event: H3Event): boolean {
+  const policy = authOriginPolicy();
   const host = getRequestHost(event);
-  const allowed = configuredList(process.env.MCP_ALLOWED_HOSTS, DEFAULT_HOSTS);
-  const vercelProjectHost =
-    (host.startsWith("mvm3d-") && host.endsWith("-mvmsolos-projects.vercel.app")) ||
-    (host.startsWith("3dmvm-") && host.endsWith("-itechavazbek-5127.vercel.app"));
-  return Boolean(host) && (allowed.includes(host) || vercelProjectHost);
+  if (isTrustedHost(host, policy.allowedHosts)) return true;
+
+  // Optional operator-configured additions are exact hosts only. Wildcards,
+  // paths, schemes, comma-separated header injection, and credentials are rejected.
+  const configured = (process.env.MCP_ALLOWED_HOSTS || "")
+    .split(",")
+    .map((value) => normalizeHostHeader(value.trim()))
+    .filter((value): value is string => Boolean(value));
+  const normalized = normalizeHostHeader(host);
+  return Boolean(normalized && configured.includes(normalized));
+}
+
+function requestOrigin(event: H3Event): string | undefined {
+  const policy = authOriginPolicy();
+  const host = normalizeHostHeader(getRequestHost(event));
+  if (!host) return undefined;
+  const forwardedProto = firstHeader(event, "x-forwarded-proto")?.toLowerCase();
+  if (forwardedProto && forwardedProto !== "https" && forwardedProto !== "http") return undefined;
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(host.replace(/:\\d+$/, "").toLowerCase());
+  const protocol = forwardedProto || (local ? "http" : "https");
+  return normalizeConfiguredOrigin(protocol + "://" + host, {
+    allowHttpLocal: !policy.isProduction && !policy.isVercelPreview,
+  });
+}
+
+function originAllowed(event: H3Event): boolean {
+  const rawOrigin = getHeader(event, "origin");
+  // Native/server MCP clients commonly omit Origin; host validation and bearer
+  // authorization still apply. When Origin is present, fail closed on invalid
+  // values and require same-origin or an explicit exact operator allow-list entry.
+  if (!rawOrigin) return true;
+  const policy = authOriginPolicy();
+  const origin = normalizeConfiguredOrigin(rawOrigin, {
+    allowHttpLocal: !policy.isProduction && !policy.isVercelPreview,
+  });
+  if (!origin || !isTrustedOrigin(origin, policy.trustedOrigins)) return false;
+  const effectiveOrigin = requestOrigin(event);
+  if (effectiveOrigin && origin === effectiveOrigin) return true;
+
+  const configured = (process.env.MCP_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((value) => normalizeConfiguredOrigin(value.trim(), {
+      allowHttpLocal: !policy.isProduction && !policy.isVercelPreview,
+    }))
+    .filter((value): value is string => Boolean(value));
+  return configured.includes(origin);
 }
 
 function withCors(response: Response, origin?: string | null): Response {
