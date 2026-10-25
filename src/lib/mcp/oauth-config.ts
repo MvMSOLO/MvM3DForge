@@ -13,39 +13,103 @@ export type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number];
 
 const SCOPE_SET = new Set<string>(MCP_OAUTH_SCOPES);
 
+const MCP_PRODUCTION_ORIGIN = "https://mvm3d.vercel.app";
+const VERIFIED_MCP_PRODUCTION_ORIGINS = [
+  MCP_PRODUCTION_ORIGIN,
+  "https://mvm3d-mvmsolos-projects.vercel.app",
+  "https://mvm3d-git-main-mvmsolos-projects.vercel.app",
+] as const;
+
+function normalizeExplicitMcpOrigin(value: string, allowLocalHttp: boolean): string | null {
+  try {
+    const parsed = new URL(value);
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname.toLowerCase());
+    if (
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash ||
+      parsed.hostname.includes("*") ||
+      (parsed.protocol !== "https:" && !(allowLocalHttp && local && parsed.protocol === "http:")) ||
+      (parsed.port !== "" && !local)
+    ) return null;
+    return parsed.origin.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function vercelOrigin(value: string | undefined): string | undefined {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  try {
+    const parsed = new URL(raw.includes("://") ? raw : "https://" + raw);
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash ||
+      parsed.port ||
+      !parsed.hostname.toLowerCase().endsWith(".vercel.app")
+    ) return undefined;
+    return parsed.origin.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function mcpRuntimeMode(): "development" | "preview" | "production" {
+  if (process.env.NODE_ENV && process.env.NODE_ENV !== "production") return "development";
+  if (process.env.VERCEL_ENV?.trim().toLowerCase() === "preview") return "preview";
+  if (process.env.VERCEL_ENV?.trim().toLowerCase() === "production" || process.env.NODE_ENV === "production") {
+    return "production";
+  }
+  return "development";
+}
+
 export function mcpPublicBaseUrl(): string {
+  const mode = mcpRuntimeMode();
   const configured = process.env.MCP_PUBLIC_URL?.trim();
-  const vercelEnvironment = process.env.VERCEL_ENV?.trim().toLowerCase();
-  const isPreview = vercelEnvironment === "preview";
-  const projectHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  const branchHost = process.env.VERCEL_BRANCH_URL?.trim();
-  const deploymentHost = process.env.VERCEL_URL?.trim();
-
-  // An explicit URL wins. Otherwise, previews must identify themselves using
-  // their branch/deployment host instead of accidentally borrowing the
-  // production project's hostname. Production prefers its stable project host.
-  const systemHost = isPreview
-    ? branchHost || deploymentHost
-    : projectHost || deploymentHost || branchHost;
-  const inferredBase = systemHost
-    ? "https://" + systemHost.replace(/^https?:\/\//i, "")
-    : isPreview
-      ? ""
-      : process.env.NODE_ENV === "production"
-        ? "https://mvm3d.vercel.app"
-        : "http://localhost:8080";
-
-  let base = configured || inferredBase;
-  while (base.endsWith("/")) base = base.slice(0, -1);
-  if (!base) {
-    throw new Error("MCP_PUBLIC_URL could not be inferred for this Vercel preview deployment.");
+  const explicitOrigin = configured
+    ? normalizeExplicitMcpOrigin(configured, mode === "development")
+    : null;
+  if (configured && !explicitOrigin) {
+    throw new Error("MCP_PUBLIC_URL must be a valid root origin without credentials, paths, queries, fragments, wildcards, or untrusted ports.");
   }
 
-  const parsed = new URL(base);
-  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
-    throw new Error("MCP_PUBLIC_URL must use HTTPS outside local development.");
+  if (mode === "development") {
+    return explicitOrigin || "http://localhost:8080";
   }
-  return parsed.origin;
+
+  const branchOrigin = vercelOrigin(process.env.VERCEL_BRANCH_URL);
+  const deploymentOrigin = vercelOrigin(process.env.VERCEL_URL);
+  const projectOrigin = vercelOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL);
+
+  if (mode === "preview") {
+    const previewOrigins = [branchOrigin, deploymentOrigin].filter((origin): origin is string => Boolean(origin));
+    if (!previewOrigins.length) {
+      throw new Error("MCP_PUBLIC_URL could not be inferred for this Vercel preview deployment.");
+    }
+    if (explicitOrigin && !previewOrigins.includes(explicitOrigin)) {
+      throw new Error("MCP_PUBLIC_URL must match this Vercel preview's branch or deployment origin.");
+    }
+    return explicitOrigin || branchOrigin || deploymentOrigin!;
+  }
+
+  const productionOrigins = new Set<string>([
+    ...VERIFIED_MCP_PRODUCTION_ORIGINS,
+    ...(projectOrigin ? [projectOrigin] : []),
+    ...(deploymentOrigin ? [deploymentOrigin] : []),
+  ]);
+  if (explicitOrigin && !productionOrigins.has(explicitOrigin)) {
+    throw new Error("MCP_PUBLIC_URL must match the verified MVM3D production origin or its exact Vercel-reported origin.");
+  }
+  // Keep the canonical hostname as issuer when the environment has only a
+  // deployment URL or no metadata; never advertise a branch Preview as issuer.
+  return explicitOrigin || projectOrigin || MCP_PRODUCTION_ORIGIN;
 }
 
 export function mcpResourceUrl(): string {
