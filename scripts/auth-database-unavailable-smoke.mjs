@@ -5,8 +5,8 @@
  * Runs the actual TanStack/Vite server on loopback with a production runtime
  * environment, deliberately removes database URLs from the child process, and
  * verifies that auth requests stop at the readiness gate instead of reaching
- * Better Auth's process-local PGLite fallback. This test never connects to or
- * changes any database.
+ * Better Auth's process-local PGLite fallback. This test never connects to an external database; auth requests must stop
+ * before any write reaches the process-local PGLite fallback.
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
