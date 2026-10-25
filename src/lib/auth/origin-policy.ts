@@ -122,7 +122,7 @@ export function isTrustedHost(value: string | undefined, allowedHosts: readonly 
   const normalized = normalizeHostHeader(value);
   if (!normalized) return false;
   if (allowedHosts.includes(normalized)) return true;
-  const noPort = normalized.replace(/:\\d+$/, "");
+  const noPort = normalized.replace(/:\d+$/, "");
   return allowedHosts.includes(LIVE_PREVIEW_HOST_PATTERN) &&
     noPort.endsWith(".grok-sandbox.com") &&
     noPort !== "grok-sandbox.com";
