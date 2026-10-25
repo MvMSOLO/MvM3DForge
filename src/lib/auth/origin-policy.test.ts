@@ -52,13 +52,48 @@ test("Development retains loopback origins and the documented sandbox preview wi
   assert.ok(!policy.trustedOrigins.includes(CANONICAL_PRODUCTION_ORIGIN));
 });
 
-test("an explicit base URL is normalized to its exact origin", () => {
+test("an explicit base URL is honored in Production only when it matches the canonical origin", () => {
   const policy = resolveAuthOriginPolicy({
     NODE_ENV: "production",
+    VERCEL_ENV: "production",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    BETTER_AUTH_URL: "https://mvm3d.vercel.app/",
+  });
+  assert.ok(policy.trustedOrigins.includes(CANONICAL_PRODUCTION_ORIGIN));
+  assert.ok(policy.dynamicAllowedHosts.includes("mvm3d.vercel.app"));
+});
+
+test("Production ignores an unverified custom BETTER_AUTH_URL", () => {
+  const policy = resolveAuthOriginPolicy({
+    NODE_ENV: "production",
+    VERCEL_ENV: "production",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
     BETTER_AUTH_URL: "https://auth.example.test/",
   });
-  assert.ok(policy.trustedOrigins.includes("https://auth.example.test"));
-  assert.ok(policy.dynamicAllowedHosts.includes("auth.example.test"));
+  assert.equal(policy.explicitBaseURL, undefined);
+  assert.ok(!policy.trustedOrigins.includes("https://auth.example.test"));
+  assert.ok(!policy.dynamicAllowedHosts.includes("auth.example.test"));
+});
+
+test("Preview ignores stale Production BETTER_AUTH_URL while accepting its exact branch origin", () => {
+  const stale = resolveAuthOriginPolicy({
+    NODE_ENV: "production",
+    VERCEL_ENV: "preview",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_BRANCH_URL: "mvm3d-git-task-10-mvmsolos-projects.vercel.app",
+    BETTER_AUTH_URL: "https://mvm3d.vercel.app",
+  });
+  assert.equal(stale.explicitBaseURL, undefined);
+  assert.ok(!stale.trustedOrigins.includes(CANONICAL_PRODUCTION_ORIGIN));
+  assert.ok(!stale.dynamicAllowedHosts.includes("mvm3d.vercel.app"));
+
+  const matching = resolveAuthOriginPolicy({
+    NODE_ENV: "production",
+    VERCEL_ENV: "preview",
+    VERCEL_BRANCH_URL: "mvm3d-git-task-10-mvmsolos-projects.vercel.app",
+    BETTER_AUTH_URL: "https://mvm3d-git-task-10-mvmsolos-projects.vercel.app/",
+  });
+  assert.equal(matching.explicitBaseURL, "https://mvm3d-git-task-10-mvmsolos-projects.vercel.app");
 });
 
 test("unsafe explicit origins are not trusted", () => {
