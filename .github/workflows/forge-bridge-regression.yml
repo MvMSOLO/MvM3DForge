@@ -30,10 +30,49 @@ jobs:
         run: npm run typecheck
 
       - name: Run MCP, auth and scene regression tests
-        run: node --experimental-strip-types --test src/lib/auth/mcp-auth-policy.test.ts src/lib/mcp/api-keys.test.ts src/forge/sdk/execute.test.ts src/forge/ai-mcp.test.ts src/forge/export-glb.test.ts src/forge/remote-mcp-server.test.ts
+        run: node --experimental-strip-types --test src/lib/auth/mcp-auth-policy.test.ts src/lib/mcp/oauth-config.test.ts src/lib/mcp/api-keys.test.ts src/forge/sdk/execute.test.ts src/forge/ai-mcp.test.ts src/forge/export-glb.test.ts src/forge/remote-mcp-server.test.ts
 
       - name: Lint project
         run: npm run lint
+
+
+  migration-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mvm3_migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mvm3_migration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MIGRATION_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mvm3_migration_test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate fresh PostgreSQL initialization, rerun safety, and data preservation
+        run: node scripts/migration-postgres-smoke.mjs
+
+      - name: Run migration inventory and retry-policy unit tests
+        run: node --test scripts/migration-plan.test.mjs
 
   production-mcp-smoke:
     runs-on: ubuntu-latest
@@ -44,8 +83,6 @@ jobs:
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: 22
 
       - name: Check production OAuth discovery and MCP authentication boundary
         run: node scripts/mcp-production-smoke.mjs
