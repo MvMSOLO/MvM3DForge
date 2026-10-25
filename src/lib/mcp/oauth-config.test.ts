@@ -12,7 +12,8 @@ const keys = [
 ];
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
-  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  const previous = new Map<string, string | undefined>();
+  for (const key of keys) previous.set(key, process.env[key]);
   for (const key of keys) delete process.env[key];
   for (const [key, value] of Object.entries(values)) {
     if (value === undefined) delete process.env[key];
