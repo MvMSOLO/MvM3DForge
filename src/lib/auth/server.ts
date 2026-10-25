@@ -97,7 +97,7 @@ export const authConfigured =
 // preview allowlist, which makes the OAuth `redirect_uri` the concrete preview URL
 // the broker's preview client accepts.
 const explicitBaseURL = env("BETTER_AUTH_URL");
-const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3d.vercel.app;
+const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3d.vercel.app";
 
 // Trust the canonical production origin plus exact Vercel hosts injected for this deployment.
 const COMPATIBLE_PRODUCTION_ORIGINS = [CANONICAL_PRODUCTION_ORIGIN] as const;
