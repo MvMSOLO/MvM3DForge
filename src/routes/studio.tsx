@@ -822,6 +822,28 @@ function Studio() {
         objects: [...before.objects, referenceNode],
         updatedAt: Date.now(),
       };
+      let cloudSaved = false;
+      let cloudSaveIssue = "";
+      if (!next.author) {
+        cloudSaveIssue = "Image reference added locally. Save current in Workspace → integrations → Cloud projects so MCP can read it.";
+      } else {
+        try {
+          const response = await fetch("/api/forge-projects", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ project: next }),
+          });
+          const data = await response.json().catch(() => ({})) as { error?: string };
+          if (!response.ok) {
+            cloudSaveIssue = typeof data.error === "string" ? data.error : "Cloud sync failed. Use Cloud projects → Save current before connecting the AI.";
+          } else {
+            cloudSaved = true;
+          }
+        } catch (error) {
+          cloudSaveIssue = error instanceof Error ? error.message : "Cloud sync failed. Save current in Cloud projects before asking MCP to inspect the image.";
+        }
+      }
       useHistoryStore.getState().executeCommand({
         description: "Import image reference · " + file.name,
         undo: () => setProject(before),
@@ -829,7 +851,7 @@ function Studio() {
       });
       setSelectedObjectId(referenceNode.id);
       addLog("[IMAGE] Imported reference " + file.name + " (" + image.naturalWidth + "×" + image.naturalHeight + ").");
-      setMessage("Image reference ready · open /ais, connect an AI, and ask it to call get_reference_image before rebuilding it as editable 3D.");
+      setMessage(cloudSaved ? "Image reference synced to cloud · the connected AI can inspect it via get_reference_image." : cloudSaveIssue || "Image reference imported. Save it to Cloud projects before asking MCP to inspect it.");
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Image reference import failed.";
       addLog("[ERROR] Image reference: " + detail);
