@@ -30,15 +30,15 @@ function withEnv(values: Record<string, string | undefined>, run: () => void) {
   }
 }
 
-test("explicit MCP_PUBLIC_URL takes precedence in every environment", () => {
+test("explicit MCP_PUBLIC_URL is honored in Preview only when it matches the deployment", () => {
   withEnv({
-    MCP_PUBLIC_URL: "https://preview.example.test/",
+    MCP_PUBLIC_URL: "https://mvm3d-git-review.vercel.app/",
     VERCEL_ENV: "preview",
     VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
     VERCEL_BRANCH_URL: "mvm3d-git-review.vercel.app",
   }, () => {
-    assert.equal(mcpPublicBaseUrl(), "https://preview.example.test");
-    assert.equal(mcpResourceUrl(), "https://preview.example.test/mcp");
+    assert.equal(mcpPublicBaseUrl(), "https://mvm3d-git-review.vercel.app");
+    assert.equal(mcpResourceUrl(), "https://mvm3d-git-review.vercel.app/mcp");
   });
 });
 
