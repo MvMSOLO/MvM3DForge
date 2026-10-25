@@ -95,12 +95,6 @@ function parseOrigin(value: string, allowLocalHttp: boolean): URL | null {
   }
 }
 
-function parseCsvHosts(value: string, allowLocalHttp: boolean): string[] {
-  return value.split(",")
-    .map((entry) => normalizeConfiguredHost(entry.trim(), allowLocalHttp))
-    .filter((entry): entry is string => Boolean(entry));
-}
-
 export function resolveAllowedMcpHosts(env: McpOriginEnvironment): string[] {
   const mode = runtimeMode(env);
   const allowLocalHttp = mode === "development";
