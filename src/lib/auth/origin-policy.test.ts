@@ -48,6 +48,7 @@ test("Development retains loopback origins and the documented sandbox preview wi
   assert.ok(policy.trustedOrigins.includes("http://localhost:8080"));
   assert.ok(policy.trustedOrigins.includes("http://127.0.0.1:8080"));
   assert.ok(policy.trustedOrigins.includes("https://*.grok-sandbox.com"));
+  assert.ok(!policy.trustedOrigins.includes("http://*.grok-sandbox.com"), "sandbox wildcard must be HTTPS-only");
   assert.ok(policy.dynamicAllowedHosts.includes("*.grok-sandbox.com"));
   assert.ok(!policy.trustedOrigins.includes(CANONICAL_PRODUCTION_ORIGIN));
 });
