@@ -247,7 +247,7 @@ export function isAllowedSameOriginConsentPost(input: {
 
   const forwardedProto = input.forwardedProto?.split(",", 1)[0]?.trim().toLowerCase();
   if (forwardedProto && forwardedProto !== "https" && forwardedProto !== "http") return false;
-  const local = /^(localhost|127\\.0\\.0\\.1|\\[::1\\])(?::\\d+)?$/i.test(requestHost);
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(requestHost);
   const protocol = forwardedProto || (local ? "http" : "https");
   const effectiveOrigin = parseOrigin(protocol + "://" + requestHost, allowLocalHttp);
   return Boolean(effectiveOrigin && effectiveOrigin.origin.toLowerCase() === sourceOrigin);
