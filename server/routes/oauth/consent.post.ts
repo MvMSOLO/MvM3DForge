@@ -106,8 +106,8 @@ export default defineEventHandler(async (event) => {
     ...safeCallbackDescription(redirectUri),
     hasState: Boolean(state),
     hasPkceChallenge: Boolean(challenge),
-    requestedScopeCount: (body.requested_scope || "").split(/\\s+/).filter(Boolean).length,
-    selectedScopeCount: (body.scope || "").split(/\\s+/).filter(Boolean).length,
+    requestedScopeCount: (body.requested_scope || "").split(/\s+/).filter(Boolean).length,
+    selectedScopeCount: (body.scope || "").split(/\s+/).filter(Boolean).length,
   });
 
   let client;
