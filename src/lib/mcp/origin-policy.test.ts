@@ -20,6 +20,8 @@ test("Production defaults to mvm3d.vercel.app and exact Vercel Production hosts"
   assert.deepEqual(new Set(resolveAllowedMcpHosts(env)), new Set([
     "mvm3d.vercel.app",
     "mvm3d-deployment-123.vercel.app",
+    "mvm3d-mvmsolos-projects.vercel.app",
+    "mvm3d-git-main-mvmsolos-projects.vercel.app",
   ]));
   assert.ok(!resolveAllowedMcpHosts(env).includes("stale-preview.vercel.app"));
   assert.ok(!resolveAllowedMcpHosts(env).some((host) => host.includes("3dmvm")));
@@ -43,6 +45,55 @@ test("Preview accepts only its configured MCP issuer and Vercel Preview hostname
   assert.ok(!isAllowedMcpHost("3dmvm.vercel.app", env));
   assert.ok(isAllowedMcpOrigin("https://mvm3d-git-task-10-mvmsolos-projects.vercel.app", env));
   assert.ok(!isAllowedMcpOrigin(CANONICAL_MCP_ORIGIN, env));
+});
+
+test("Preview does not inherit Production through MCP_PUBLIC_URL", () => {
+  const env = {
+    NODE_ENV: "production",
+    VERCEL_ENV: "preview",
+    MCP_PUBLIC_URL: "https://mvm3d.vercel.app",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_BRANCH_URL: "mvm3d-git-task-10-mvmsolos-projects.vercel.app",
+    VERCEL_URL: "mvm3d-pr-10-mvmsolos-projects.vercel.app",
+  };
+  assert.deepEqual(resolveAllowedMcpHosts(env), []);
+  assert.ok(!isAllowedMcpHost("mvm3d.vercel.app", env));
+  assert.ok(!isAllowedMcpOrigin(CANONICAL_MCP_ORIGIN, env));
+});
+
+test("Preview accepts MCP_PUBLIC_URL only when it matches its exact branch/deployment host", () => {
+  const env = {
+    NODE_ENV: "production",
+    VERCEL_ENV: "preview",
+    MCP_PUBLIC_URL: "https://mvm3d-git-task-10-mvmsolos-projects.vercel.app",
+    VERCEL_BRANCH_URL: "mvm3d-git-task-10-mvmsolos-projects.vercel.app",
+    VERCEL_URL: "mvm3d-pr-10-mvmsolos-projects.vercel.app",
+  };
+  assert.ok(isAllowedMcpHost("mvm3d-git-task-10-mvmsolos-projects.vercel.app", env));
+  assert.ok(isAllowedMcpOrigin("https://mvm3d-git-task-10-mvmsolos-projects.vercel.app", env));
+});
+
+test("Production rejects a stale MCP_PUBLIC_URL from another project", () => {
+  const env = {
+    NODE_ENV: "production",
+    VERCEL_ENV: "production",
+    MCP_PUBLIC_URL: "https://3dmvm.vercel.app",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_URL: "mvm3d-deployment-123.vercel.app",
+  };
+  assert.deepEqual(resolveAllowedMcpHosts(env), []);
+  assert.ok(!isAllowedMcpHost("mvm3d.vercel.app", env));
+});
+
+test("non-standard external ports are rejected", () => {
+  const env = { NODE_ENV: "production", MCP_ALLOWED_HOSTS: "mvm3d.vercel.app:444" };
+  assert.deepEqual(resolveAllowedMcpHosts(env), []);
+  assert.ok(!isAllowedMcpOrigin("https://mvm3d.vercel.app:444", { NODE_ENV: "production" }));
+});
+
+test("mixed valid and malformed host overrides fail closed as a whole", () => {
+  const env = { NODE_ENV: "production", MCP_ALLOWED_HOSTS: "mvm3d.vercel.app, https://evil.example/path" };
+  assert.deepEqual(resolveAllowedMcpHosts(env), []);
 });
 
 test("explicit host allow-list is exact and replaces inferred defaults", () => {
