@@ -112,7 +112,6 @@ export function resolveAuthOriginPolicy(env: AuthOriginEnvironment): AuthOriginP
     // This wildcard is the documented shared live-preview boundary, not a
     // catch-all Vercel or arbitrary-domain wildcard.
     exactOrigins.add("https://*.grok-sandbox.com");
-    exactOrigins.add("http://*.grok-sandbox.com");
   }
 
   // BETTER_AUTH_URL is not proof that a domain belongs to this deployment.
