@@ -111,6 +111,27 @@ test("explicit host allow-list is exact and replaces inferred defaults", () => {
   assert.ok(!isAllowedMcpHost("mvm3d-pr-123-mvmsolos-projects.vercel.app", env));
 });
 
+test("wildcard and mixed malformed host overrides fail closed", () => {
+  for (const MCP_ALLOWED_HOSTS of [
+    "*.vercel.app",
+    "mvm3d.vercel.app, https://evil.example/path",
+  ]) {
+    const env = { NODE_ENV: "production", MCP_ALLOWED_HOSTS };
+    assert.deepEqual(resolveAllowedMcpHosts(env), []);
+    assert.ok(!isAllowedMcpHost("mvm3d.vercel.app", env));
+  }
+});
+
+test("wildcard MCP_PUBLIC_URL never becomes a trusted host or issuer", () => {
+  const env = {
+    NODE_ENV: "production",
+    MCP_PUBLIC_URL: "https://*.vercel.app",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+  };
+  assert.deepEqual(resolveAllowedMcpHosts(env), []);
+  assert.ok(!isAllowedMcpHost("mvm3d.vercel.app", env));
+});
+
 test("an invalid non-empty host override fails closed", () => {
   const env = {
     NODE_ENV: "production",
