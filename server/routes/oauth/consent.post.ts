@@ -10,6 +10,7 @@ import {
   mcpResourceUrl,
   normalizeOAuthScopes,
   readFormBody,
+  requestHeaders,
 } from "../../utils/mcp-oauth.ts";
 
 function errorPage(event: H3Event, status: number, message: string) {
@@ -24,14 +25,42 @@ function errorPage(event: H3Event, status: number, message: string) {
 
 export default defineEventHandler(async (event) => {
   setHeader(event, "Cache-Control", "no-store");
-  if (!isSameOriginConsentRequest(event)) return errorPage(event, 403, "Cross-origin consent submissions are blocked.");
+  const requestHeadersForLog = requestHeaders(event);
+  const originHost = (() => {
+    try { return requestHeadersForLog.get("origin") ? new URL(requestHeadersForLog.get("origin")!).host : null; }
+    catch { return "invalid-origin"; }
+  })();
+  console.info("[mcp-oauth] consent POST received", {
+    method: event.method,
+    host: requestHeadersForLog.get("x-forwarded-host") || requestHeadersForLog.get("host") || "unknown",
+    originHost,
+    hasCookieHeader: Boolean(requestHeadersForLog.get("cookie")),
+    contentType: (requestHeadersForLog.get("content-type") || "").split(";")[0],
+  });
+  if (!isSameOriginConsentRequest(event)) {
+    console.warn("[mcp-oauth] consent POST rejected by origin check", { originHost });
+    return errorPage(event, 403, "This connection came from an untrusted origin. Restart Connect from the official MVM3D address.");
+  }
 
   let body: Record<string, string>;
   try {
     body = await readFormBody(event);
-  } catch {
-    return errorPage(event, 400, "The consent form could not be read.");
+  } catch (error) {
+    console.error("[mcp-oauth] consent form parsing failed", {
+      message: error instanceof Error ? error.message : "Unknown form parsing error",
+      contentType: (requestHeadersForLog.get("content-type") || "").split(";")[0],
+    });
+    return errorPage(event, 400, "The consent form could not be read. Return to the AI client and retry Connect.");
   }
+  console.info("[mcp-oauth] consent fields parsed", {
+    decision: body.decision === "allow" || body.decision === "deny" ? body.decision : "missing",
+    hasClientId: Boolean(body.client_id),
+    hasRedirectUri: Boolean(body.redirect_uri),
+    hasState: Boolean(body.state),
+    hasPkceChallenge: Boolean(body.code_challenge),
+    requestedScopeCount: (body.requested_scope || "").split(/\s+/).filter(Boolean).length,
+    selectedScopeCount: (body.scope || "").split(/\s+/).filter(Boolean).length,
+  });
   const clientId = body.client_id || "";
   const redirectUri = body.redirect_uri || "";
   const state = body.state || "";
