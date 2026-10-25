@@ -94,8 +94,6 @@ export function resolveAuthOriginPolicy(env: AuthOriginEnvironment): AuthOriginP
     .filter((host): host is string => Boolean(host));
 
   const exactOrigins = new Set<string>();
-  if (explicitOrigin) exactOrigins.add(explicitOrigin.origin);
-
   if (mode === "production") {
     exactOrigins.add(CANONICAL_PRODUCTION_ORIGIN);
     for (const host of exactPlatformHosts) exactOrigins.add("https://" + host);
@@ -109,11 +107,26 @@ export function resolveAuthOriginPolicy(env: AuthOriginEnvironment): AuthOriginP
     exactOrigins.add("http://*.grok-sandbox.com");
   }
 
+  // BETTER_AUTH_URL is not proof that a domain belongs to this deployment.
+  // Honor it only in development, or when it exactly matches this environment's
+  // canonical/platform-reported origin. A stale Production URL in Preview must
+  // not be added to Preview's trusted origins or dynamic baseURL hosts.
+  const explicitAllowed = Boolean(
+    explicitOrigin && (
+      mode === "development" ||
+      (mode === "production" &&
+        (explicitOrigin.origin === CANONICAL_PRODUCTION_ORIGIN ||
+          exactPlatformHosts.includes(explicitOrigin.host))) ||
+      (mode === "preview" && exactPlatformHosts.includes(explicitOrigin.host))
+    )
+  );
+  if (explicitOrigin && explicitAllowed) exactOrigins.add(explicitOrigin.origin);
+
   const dynamicAllowedHosts = new Set<string>(exactPlatformHosts);
   if (mode === "production") {
     dynamicAllowedHosts.add(new URL(CANONICAL_PRODUCTION_ORIGIN).host);
   }
-  if (explicitOrigin) dynamicAllowedHosts.add(explicitOrigin.host);
+  if (explicitOrigin && explicitAllowed) dynamicAllowedHosts.add(explicitOrigin.host);
   if (mode === "development") {
     for (const host of LOCAL_DEV_HOSTS) dynamicAllowedHosts.add(host);
     for (const host of PREVIEW_ALLOWED_HOSTS) dynamicAllowedHosts.add(host);
@@ -123,6 +136,6 @@ export function resolveAuthOriginPolicy(env: AuthOriginEnvironment): AuthOriginP
     mode,
     trustedOrigins: [...exactOrigins],
     dynamicAllowedHosts: [...dynamicAllowedHosts],
-    ...(explicitOrigin ? { explicitBaseURL: explicitOrigin.origin } : {}),
+    ...(explicitOrigin && explicitAllowed ? { explicitBaseURL: explicitOrigin.origin } : {}),
   };
 }
