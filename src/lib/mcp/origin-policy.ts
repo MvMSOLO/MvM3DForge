@@ -9,6 +9,10 @@
 export type McpOriginEnvironment = Record<string, string | undefined>;
 
 export const CANONICAL_MCP_ORIGIN = "https://mvm3d.vercel.app";
+const VERIFIED_PRODUCTION_ALIASES = [
+  "mvm3d-mvmsolos-projects.vercel.app",
+  "mvm3d-git-main-mvmsolos-projects.vercel.app",
+] as const;
 
 const LOCAL_DEV_HOSTS = ["localhost:8080", "127.0.0.1:8080", "[::1]:8080"] as const;
 const LOCAL_DEV_ORIGINS = [
@@ -56,7 +60,8 @@ function normalizeConfiguredHost(value: string | undefined, allowLocalHttp: bool
       url.pathname !== "/" ||
       url.search ||
       url.hash ||
-      (url.protocol !== "https:" && !(allowLocalHttp && local && url.protocol === "http:"))
+      (url.protocol !== "https:" && !(allowLocalHttp && local && url.protocol === "http:")) ||
+      (url.port !== "" && !local)
     ) {
       return null;
     }
@@ -77,7 +82,8 @@ function parseOrigin(value: string, allowLocalHttp: boolean): URL | null {
       url.pathname !== "/" ||
       url.search ||
       url.hash ||
-      (url.protocol !== "https:" && !(allowLocalHttp && local && url.protocol === "http:"))
+      (url.protocol !== "https:" && !(allowLocalHttp && local && url.protocol === "http:")) ||
+      (url.port !== "" && !local)
     ) {
       return null;
     }
@@ -98,29 +104,52 @@ export function resolveAllowedMcpHosts(env: McpOriginEnvironment): string[] {
   const allowLocalHttp = mode === "development";
   const override = env.MCP_ALLOWED_HOSTS;
   if (override?.trim()) {
-    // An explicit override intentionally replaces inferred defaults. Invalid
-    // non-empty configuration fails closed rather than silently widening.
-    return [...new Set(parseCsvHosts(override, allowLocalHttp))];
+    // An explicit override intentionally replaces inferred defaults. Any invalid
+    // item fails closed rather than leaving a partially applied allow-list.
+    const entries = override.split(",").map((entry) => entry.trim());
+    const hosts = entries.map((entry) => normalizeConfiguredHost(entry, allowLocalHttp));
+    if (entries.some((entry) => !entry) || hosts.some((host) => !host)) return [];
+    return [...new Set(hosts as string[])];
   }
 
-  const hostValues = [
-    env.MCP_PUBLIC_URL,
-    ...(mode === "preview"
-      ? [env.VERCEL_BRANCH_URL, env.VERCEL_URL]
-      : mode === "production"
-        ? [env.VERCEL_PROJECT_PRODUCTION_URL, env.VERCEL_URL]
-        : []),
-  ];
-  const hosts = hostValues
+  const configuredPublicUrl = env.MCP_PUBLIC_URL?.trim();
+  const configuredPublicHost = configuredPublicUrl
+    ? normalizeConfiguredHost(configuredPublicUrl, allowLocalHttp)
+    : null;
+  if (configuredPublicUrl && !configuredPublicHost) return [];
+
+  const platformHosts = mode === "preview"
+    ? [env.VERCEL_BRANCH_URL, env.VERCEL_URL]
+    : mode === "production"
+      ? [env.VERCEL_PROJECT_PRODUCTION_URL, env.VERCEL_URL]
+      : [];
+  const exactPlatformHosts = platformHosts
     .map((value) => normalizeConfiguredHost(value, allowLocalHttp))
     .filter((host): host is string => Boolean(host));
 
-  if (mode === "production") {
-    hosts.push(new URL(CANONICAL_MCP_ORIGIN).host);
-  } else if (mode === "development") {
-    hosts.push(...LOCAL_DEV_HOSTS);
+  if (configuredPublicHost && mode === "preview" && !exactPlatformHosts.includes(configuredPublicHost)) {
+    // Do not let an inherited Production MCP_PUBLIC_URL make Preview trust
+    // Production as a host/issuer.
+    return [];
   }
-  return [...new Set(hosts)];
+  if (configuredPublicHost && mode === "production") {
+    const verifiedProductionHosts = new Set<string>([
+      new URL(CANONICAL_MCP_ORIGIN).host,
+      ...VERIFIED_PRODUCTION_ALIASES,
+      ...exactPlatformHosts,
+    ]);
+    if (!verifiedProductionHosts.has(configuredPublicHost)) return [];
+  }
+
+  const hosts = mode === "development"
+    ? [configuredPublicHost, ...LOCAL_DEV_HOSTS]
+    : exactPlatformHosts;
+  if (configuredPublicHost && !hosts.includes(configuredPublicHost)) hosts.push(configuredPublicHost);
+
+  if (mode === "production") {
+    hosts.push(new URL(CANONICAL_MCP_ORIGIN).host, ...VERIFIED_PRODUCTION_ALIASES);
+  }
+  return [...new Set(hosts.filter((host): host is string => Boolean(host)))];
 }
 
 /** Prefer the canonical forwarded host set by Vercel; never fall back when it is malformed. */
@@ -151,10 +180,11 @@ export function resolveAllowedMcpOrigins(env: McpOriginEnvironment): string[] {
   const allowLocalHttp = mode === "development";
   const override = env.MCP_ALLOWED_ORIGINS;
   if (override?.trim()) {
-    // Exact normalized origins only. A malformed non-empty override denies all.
-    return [...new Set(override.split(",")
-      .map((entry) => parseOrigin(entry.trim(), allowLocalHttp)?.origin)
-      .filter((entry): entry is string => Boolean(entry)))];
+    // Exact normalized origins only. Any malformed item denies the whole list.
+    const entries = override.split(",").map((entry) => entry.trim());
+    const origins = entries.map((entry) => parseOrigin(entry, allowLocalHttp)?.origin);
+    if (entries.some((entry) => !entry) || origins.some((origin) => !origin)) return [];
+    return [...new Set(origins as string[])];
   }
 
   const origins = resolveAllowedMcpHosts(env)
