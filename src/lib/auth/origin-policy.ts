@@ -72,6 +72,9 @@ export function normalizeAuthPlatformHost(value: string | undefined): string | n
 
 function resolveMode(env: AuthOriginEnvironment): AuthOriginPolicy["mode"] {
   const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
+  // Local/test integration runs can set VERCEL_ENV=preview to mirror deployment
+  // metadata; NODE_ENV=development/test must still retain loopback auth origins.
+  if (env.NODE_ENV && env.NODE_ENV !== "production") return "development";
   if (vercelEnv === "preview") return "preview";
   if (vercelEnv === "production" || env.NODE_ENV === "production") return "production";
   return "development";
