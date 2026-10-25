@@ -46,10 +46,20 @@ function withCors(response: Response, request?: Request): Response {
   const headers = new Headers(response.headers);
   const cors = corsHeaders(request);
   for (const [key, value] of cors.entries()) {
-    if (key === "cache-control" || key === "vary" || !headers.has(key)) headers.set(key, value);
+    if (key !== "access-control-allow-origin") {
+      headers.set(key, value);
+    }
   }
-  if (request?.headers.get("origin") && (!hostAllowed(request) || !originAllowed(request))) {
+
+  const origin = request?.headers.get("origin");
+  if (origin && hostAllowed(request!) && originAllowed(request!)) {
+    headers.set("access-control-allow-origin", origin);
+  } else if (origin) {
+    // Never reflect a rejected origin and never retain an ACAO header from a
+    // downstream transport on an error response.
     headers.delete("access-control-allow-origin");
+  } else {
+    headers.set("access-control-allow-origin", "*");
   }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
