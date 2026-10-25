@@ -22,8 +22,14 @@ function configuredList(value: string | undefined, fallback: string[]): string[]
 }
 
 function getRequestHost(event: H3Event): string {
-  const host = getHeader(event, "host") || getHeader(event, "x-forwarded-host") || "";
-  return host.toLowerCase().split(":")[0];
+  // Vercel may route the request through a deployment hostname while preserving
+  // the user's canonical alias in x-forwarded-host. Match the public host first,
+  // as the OAuth consent/session helpers do; the allow-list below still validates
+  // the resulting hostname before any MCP work is accepted.
+  const forwardedHost = getHeader(event, "x-forwarded-host") || "";
+  const directHost = getHeader(event, "host") || "";
+  const host = (forwardedHost || directHost).split(",")[0]?.trim().toLowerCase() || "";
+  return host.replace(/:\d+$/, "");
 }
 
 function originAllowed(event: H3Event): boolean {

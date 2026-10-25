@@ -38,7 +38,7 @@ jobs:
 
   migration-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -81,6 +81,14 @@ jobs:
         env:
           AUTH_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mvm3_auth_test
         run: node scripts/auth-postgres-smoke.mjs
+
+      - name: Create isolated OAuth end-to-end test database
+        run: psql postgresql://postgres:postgres@localhost:5432/postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE mvm3_oauth_test;"
+
+      - name: Verify login → consent → PKCE → tokens → authenticated MCP
+        env:
+          OAUTH_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mvm3_oauth_test
+        run: node scripts/oauth-postgres-smoke.mjs
 
   production-mcp-smoke:
     runs-on: ubuntu-latest
