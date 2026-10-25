@@ -17,6 +17,8 @@ test("Production trusts only the canonical origin and exact Production platform 
   assert.equal(policy.mode, "production");
   assert.deepEqual(new Set(policy.trustedOrigins), new Set([
     CANONICAL_PRODUCTION_ORIGIN,
+    "https://mvm3d-mvmsolos-projects.vercel.app",
+    "https://mvm3d-git-main-mvmsolos-projects.vercel.app",
     "https://mvm3d-deployment-123.vercel.app",
   ]));
   assert.ok(policy.dynamicAllowedHosts.includes("mvm3d.vercel.app"));
@@ -117,7 +119,11 @@ test("unsafe explicit origins are not trusted", () => {
 
 test("unrelated 3dmvm domains and arbitrary wildcard domains are not in Production origins", () => {
   const policy = resolveAuthOriginPolicy({ NODE_ENV: "production" });
-  assert.deepEqual(policy.trustedOrigins, [CANONICAL_PRODUCTION_ORIGIN]);
+  assert.deepEqual(policy.trustedOrigins, [
+    CANONICAL_PRODUCTION_ORIGIN,
+    "https://mvm3d-mvmsolos-projects.vercel.app",
+    "https://mvm3d-git-main-mvmsolos-projects.vercel.app",
+  ]);
   assert.ok(!policy.trustedOrigins.includes("https://3dmvm.vercel.app"));
   assert.ok(!policy.trustedOrigins.some((origin) => origin === "https://*.vercel.app"));
 });
