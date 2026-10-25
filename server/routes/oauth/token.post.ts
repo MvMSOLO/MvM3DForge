@@ -12,6 +12,7 @@ import {
   readFormBody,
   resolveMcpOAuthClient,
 } from "../../utils/mcp-oauth.ts";
+import { inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 
 function oauthError(event: H3Event, status: number, error: string, description: string) {
   setResponseStatus(event, status);
@@ -24,6 +25,11 @@ export default defineEventHandler(async (event) => {
   setHeader(event, "Access-Control-Allow-Origin", "*");
   setHeader(event, "Access-Control-Allow-Methods", "POST, OPTIONS");
   setHeader(event, "Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  const readiness = await inspectDatabaseReadiness();
+  if (!readiness.ok) {
+    return oauthError(event, 503, "temporarily_unavailable", readiness.publicMessage);
+  }
 
   let body: Record<string, string>;
   try {
