@@ -68,6 +68,7 @@ export function normalizeConfiguredOrigin(
     ) return undefined;
 
     const local = isLoopback(parsed.hostname);
+    if (parsed.hostname.includes("*")) return undefined;
     if (parsed.protocol === "https:") {
       if (parsed.port) return undefined;
       return parsed.origin.toLowerCase();
@@ -100,6 +101,33 @@ export function configuredVercelOrigin(value: string | undefined): string | unde
 function add(target: Set<string>, value: string | undefined): void {
   if (value) target.add(value);
 }
+/** Normalize a single Host / forwarded-host value without trusting its domain. */
+export function normalizeHostHeader(value: string | undefined): string | undefined {
+  const raw = clean(value);
+  if (!raw || raw.includes(",") || raw.includes("/") || raw.includes("@") || raw.includes("*") || raw.includes("://")) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL("https://" + raw);
+    if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) return undefined;
+    if (parsed.port && !isLoopback(parsed.hostname)) return undefined;
+    return parsed.host.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/** Exact host allow-list plus the one workspace-preview wildcard. */
+export function isTrustedHost(value: string | undefined, allowedHosts: readonly string[]): boolean {
+  const normalized = normalizeHostHeader(value);
+  if (!normalized) return false;
+  if (allowedHosts.includes(normalized)) return true;
+  const noPort = normalized.replace(/:\\d+$/, "");
+  return allowedHosts.includes(LIVE_PREVIEW_HOST_PATTERN) &&
+    noPort.endsWith(".grok-sandbox.com") &&
+    noPort !== "grok-sandbox.com";
+}
+
 
 function originHost(origin: string): string | undefined {
   if (origin === LIVE_PREVIEW_HOST_PATTERN || origin === "https://" + LIVE_PREVIEW_HOST_PATTERN) {
