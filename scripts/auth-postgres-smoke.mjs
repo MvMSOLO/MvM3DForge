@@ -170,7 +170,13 @@ try {
     'public."user"',
     'public."account"',
     'public."session"',
+    'public."verification"',
     "public.projects",
+    "public.mcp_api_keys",
+    "public.mcp_execution_jobs",
+    "public.mcp_oauth_clients",
+    "public.mcp_oauth_codes",
+    "public.mcp_oauth_refresh_tokens",
   ];
   for (const relation of existingRelations) {
     const result = await pool.query("SELECT to_regclass($1) AS relation", [relation]);
