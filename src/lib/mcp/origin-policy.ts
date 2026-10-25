@@ -204,3 +204,51 @@ export function isAllowedMcpOrigin(
   if (!parsed) return false;
   return resolveAllowedMcpOrigins(env).includes(parsed.origin);
 }
+
+/**
+ * Cookie-bearing OAuth consent is a same-origin browser POST. A trusted MCP
+ * browser origin is not sufficient by itself: it must match the public host
+ * serving the consent page. If Origin is missing, a strict same-origin Referer
+ * is accepted for embedded clients that omit Origin.
+ */
+export function isAllowedSameOriginConsentPost(input: {
+  origin?: string | null;
+  referer?: string | null;
+  forwardedHost?: string | null;
+  host?: string | null;
+  forwardedProto?: string | null;
+}, env: McpOriginEnvironment): boolean {
+  const mode = runtimeMode(env);
+  const allowLocalHttp = mode === "development";
+  let sourceOrigin: string | undefined;
+
+  if (input.origin !== null && input.origin !== undefined) {
+    if (!input.origin.trim()) return false;
+    const parsedOrigin = parseOrigin(input.origin, allowLocalHttp);
+    if (!parsedOrigin) return false;
+    sourceOrigin = parsedOrigin.origin.toLowerCase();
+  } else if (input.referer) {
+    try {
+      const referer = new URL(input.referer);
+      if (referer.username || referer.password || referer.hash) return false;
+      const parsedOrigin = parseOrigin(referer.origin, allowLocalHttp);
+      if (!parsedOrigin) return false;
+      sourceOrigin = parsedOrigin.origin.toLowerCase();
+    } catch {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  if (!isAllowedMcpOrigin(sourceOrigin, env)) return false;
+  const requestHost = resolveMcpRequestHost(input.forwardedHost, input.host);
+  if (!requestHost || !isAllowedMcpHost(requestHost, env)) return false;
+
+  const forwardedProto = input.forwardedProto?.split(",", 1)[0]?.trim().toLowerCase();
+  if (forwardedProto && forwardedProto !== "https" && forwardedProto !== "http") return false;
+  const local = /^(localhost|127\\.0\\.0\\.1|\\[::1\\])(?::\\d+)?$/i.test(requestHost);
+  const protocol = forwardedProto || (local ? "http" : "https");
+  const effectiveOrigin = parseOrigin(protocol + "://" + requestHost, allowLocalHttp);
+  return Boolean(effectiveOrigin && effectiveOrigin.origin.toLowerCase() === sourceOrigin);
+}
