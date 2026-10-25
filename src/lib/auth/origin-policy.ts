@@ -15,7 +15,11 @@ export type AuthOriginPolicy = {
   mode: "production" | "preview" | "development";
 };
 
-export const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3d.vercel.app";
+export const VERIFIED_PRODUCTION_ORIGINS = [
+  CANONICAL_PRODUCTION_ORIGIN,
+  "https://mvm3d-mvmsolos-projects.vercel.app",
+  "https://mvm3d-git-main-mvmsolos-projects.vercel.app",
+] as const;
 
 const PREVIEW_ALLOWED_HOSTS = ["*.grok-sandbox.com"] as const;
 const LOCAL_DEV_ORIGINS = [
@@ -36,9 +40,11 @@ function parseOrigin(value: string | undefined, allowLocalHttp: boolean): URL | 
     if (
       url.username ||
       url.password ||
+      url.hostname.includes("*") ||
       url.pathname !== "/" ||
       url.search ||
       url.hash ||
+      (url.port !== "" && !isLoopbackHost(url.hostname.toLowerCase())) ||
       (url.protocol !== "https:" && !(allowLocalHttp && url.protocol === "http:" && isLoopbackHost(url.hostname.toLowerCase())))
     ) {
       return null;
@@ -58,6 +64,8 @@ export function normalizeAuthPlatformHost(value: string | undefined): string | n
       url.protocol !== "https:" ||
       url.username ||
       url.password ||
+      url.hostname.includes("*") ||
+      url.port !== "" ||
       url.pathname !== "/" ||
       url.search ||
       url.hash
@@ -95,7 +103,7 @@ export function resolveAuthOriginPolicy(env: AuthOriginEnvironment): AuthOriginP
 
   const exactOrigins = new Set<string>();
   if (mode === "production") {
-    exactOrigins.add(CANONICAL_PRODUCTION_ORIGIN);
+    for (const origin of VERIFIED_PRODUCTION_ORIGINS) exactOrigins.add(origin);
     for (const host of exactPlatformHosts) exactOrigins.add("https://" + host);
   } else if (mode === "preview") {
     for (const host of exactPlatformHosts) exactOrigins.add("https://" + host);
@@ -115,7 +123,7 @@ export function resolveAuthOriginPolicy(env: AuthOriginEnvironment): AuthOriginP
     explicitOrigin && (
       mode === "development" ||
       (mode === "production" &&
-        (explicitOrigin.origin === CANONICAL_PRODUCTION_ORIGIN ||
+        (VERIFIED_PRODUCTION_ORIGINS.includes(explicitOrigin.origin as (typeof VERIFIED_PRODUCTION_ORIGINS)[number]) ||
           exactPlatformHosts.includes(explicitOrigin.host))) ||
       (mode === "preview" && exactPlatformHosts.includes(explicitOrigin.host))
     )
@@ -124,7 +132,7 @@ export function resolveAuthOriginPolicy(env: AuthOriginEnvironment): AuthOriginP
 
   const dynamicAllowedHosts = new Set<string>(exactPlatformHosts);
   if (mode === "production") {
-    dynamicAllowedHosts.add(new URL(CANONICAL_PRODUCTION_ORIGIN).host);
+    for (const origin of VERIFIED_PRODUCTION_ORIGINS) dynamicAllowedHosts.add(new URL(origin).host);
   }
   if (explicitOrigin && explicitAllowed) dynamicAllowedHosts.add(explicitOrigin.host);
   if (mode === "development") {
