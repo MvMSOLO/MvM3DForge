@@ -3,6 +3,7 @@ import { getHeader } from "h3";
 import { getSessionUser, DEV_USER_ID, authConfigured } from "./verify.server";
 import { allowMcpDevelopmentFallback, ownsMcpProject } from "./mcp-auth-policy";
 import { authenticateMcpApiKey } from "@/lib/mcp/api-keys.server";
+import { verifyMcpOAuthAccessToken } from "@/lib/mcp/oauth.server";
 
 export interface McpAuthResult {
   authenticated: boolean;
@@ -47,6 +48,18 @@ export async function validateMcpRequestAuth(event: H3Event): Promise<McpAuthRes
       return unauthenticated("API key verification is temporarily unavailable.", true);
     }
     return unauthenticated("Invalid, expired, or revoked API key.");
+  }
+
+  // OAuth access tokens are distinct from long-lived API keys and Better Auth sessions.
+  // Verify issuer, audience, signature, expiry, and granted scopes before trusting them.
+  if (token?.startsWith("mvm3d_oauth_")) {
+    try {
+      const oauth = await verifyMcpOAuthAccessToken(token);
+      if (oauth) return { authenticated: true, userId: oauth.userId, scopes: oauth.scopes };
+    } catch {
+      // Verification errors must never fall through to another identity system.
+    }
+    return unauthenticated("Invalid or expired MCP OAuth access token.");
   }
 
   // A Better Auth bearer session can also be used by trusted integrations.
