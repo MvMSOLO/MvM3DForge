@@ -21,13 +21,11 @@ type RuntimeMode = "production" | "preview" | "development";
 
 function runtimeMode(env: McpOriginEnvironment): RuntimeMode {
   const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
+  // Local CI may mirror Vercel variables while NODE_ENV remains development.
+  if (env.NODE_ENV && env.NODE_ENV !== "production") return "development";
   if (vercelEnv === "preview") return "preview";
   if (vercelEnv === "production" || env.NODE_ENV === "production") return "production";
   return "development";
-}
-
-function isProduction(env: McpOriginEnvironment): boolean {
-  return runtimeMode(env) === "production";
 }
 
 function firstForwardedValue(value: string): string {
@@ -96,8 +94,8 @@ function parseCsvHosts(value: string, allowLocalHttp: boolean): string[] {
 }
 
 export function resolveAllowedMcpHosts(env: McpOriginEnvironment): string[] {
-  const production = isProduction(env);
-  const allowLocalHttp = !production;
+  const mode = runtimeMode(env);
+  const allowLocalHttp = mode === "development";
   const override = env.MCP_ALLOWED_HOSTS;
   if (override?.trim()) {
     // An explicit override intentionally replaces inferred defaults. Invalid
@@ -105,7 +103,6 @@ export function resolveAllowedMcpHosts(env: McpOriginEnvironment): string[] {
     return [...new Set(parseCsvHosts(override, allowLocalHttp))];
   }
 
-  const mode = runtimeMode(env);
   const hostValues = [
     env.MCP_PUBLIC_URL,
     ...(mode === "preview"
@@ -150,8 +147,8 @@ export function isAllowedMcpHost(
 }
 
 export function resolveAllowedMcpOrigins(env: McpOriginEnvironment): string[] {
-  const production = isProduction(env);
-  const allowLocalHttp = !production;
+  const mode = runtimeMode(env);
+  const allowLocalHttp = mode === "development";
   const override = env.MCP_ALLOWED_ORIGINS;
   if (override?.trim()) {
     // Exact normalized origins only. A malformed non-empty override denies all.
@@ -162,7 +159,7 @@ export function resolveAllowedMcpOrigins(env: McpOriginEnvironment): string[] {
 
   const origins = resolveAllowedMcpHosts(env)
     .map((host) => "https://" + host);
-  if (!production) origins.push(...LOCAL_DEV_ORIGINS);
+  if (mode === "development") origins.push(...LOCAL_DEV_ORIGINS);
   return [...new Set(origins)];
 }
 
@@ -173,7 +170,7 @@ export function isAllowedMcpOrigin(
 ): boolean {
   if (originHeader === null || originHeader === undefined) return true;
   if (!originHeader.trim()) return false;
-  const parsed = parseOrigin(originHeader, !isProduction(env));
+  const parsed = parseOrigin(originHeader, runtimeMode(env) === "development");
   if (!parsed) return false;
   return resolveAllowedMcpOrigins(env).includes(parsed.origin);
 }
