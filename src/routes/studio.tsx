@@ -7,6 +7,8 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
 import { importGlbFile } from "@/forge/import-glb.ts";
+import { makeNode } from "@/forge/nodes.ts";
+import { defaultMaterial } from "@/forge/materials.ts";
 import {
   ArrowLeft,
   Activity,
@@ -110,6 +112,7 @@ function Studio() {
   const viewportRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const glbFileRef = useRef<HTMLInputElement>(null);
+  const imageFileRef = useRef<HTMLInputElement>(null);
 
   const {
     project,
@@ -745,6 +748,98 @@ function Studio() {
     }
   }
 
+
+  async function importReferenceImage(file?: File) {
+    if (!file || !project) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setMessage("Choose a PNG, JPEG or WebP reference image.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setMessage("Reference images must be 2 MB or smaller so the connected AI can inspect them through MCP.");
+      return;
+    }
+    if (project.textures.length >= 64) {
+      setMessage("This project has reached the reference/texture limit. Remove unused textures first.");
+      return;
+    }
+    setBusy(true);
+    setMessage("Importing image reference for 3D reconstruction…");
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => typeof reader.result === "string"
+          ? resolve(reader.result)
+          : reject(new Error("The image could not be read."));
+        reader.onerror = () => reject(new Error("The image could not be read."));
+        reader.readAsDataURL(file);
+      });
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error("The selected image is not a valid image file."));
+        element.src = dataUrl;
+      });
+      const before: Project = { ...project, code, updatedAt: Date.now() };
+      const assetId = crypto.randomUUID();
+      const texture = {
+        id: assetId,
+        name: "Reference · " + file.name.slice(0, 90),
+        source: "user" as const,
+        colorSpace: "srgb" as const,
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+        dataUrl,
+      };
+      const fit = Math.min(3.2 / image.naturalWidth, 2.4 / image.naturalHeight);
+      const referenceNode = makeNode({
+        id: crypto.randomUUID(),
+        name: ("Image Reference · " + file.name.replace(/\\.[^/.]+$/, "")).slice(0, 120),
+        type: "mesh",
+        source: "user",
+        position: [0, 1, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+        geometry: {
+          kind: "plane",
+          width: Math.max(0.1, image.naturalWidth * fit),
+          height: Math.max(0.1, image.naturalHeight * fit),
+          widthSegments: 1,
+          heightSegments: 1,
+        },
+        material: defaultMaterial({
+          name: "Image Reference Material",
+          color: "#ffffff",
+          roughness: 1,
+          metalness: 0,
+          side: "double",
+          mapId: assetId,
+        }),
+      });
+      const next: Project = {
+        ...before,
+        textures: [...before.textures, texture],
+        objects: [...before.objects, referenceNode],
+        updatedAt: Date.now(),
+      };
+      useHistoryStore.getState().executeCommand({
+        description: "Import image reference · " + file.name,
+        undo: () => setProject(before),
+        redo: () => setProject(next),
+      });
+      setSelectedObjectId(referenceNode.id);
+      addLog("[IMAGE] Imported reference " + file.name + " (" + image.naturalWidth + "×" + image.naturalHeight + ").");
+      setMessage("Image reference ready · open /ais, connect an AI, and ask it to call get_reference_image before rebuilding it as editable 3D.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Image reference import failed.";
+      addLog("[ERROR] Image reference: " + detail);
+      setActiveTab("console");
+      setMessage(detail);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const meshes = project?.objects.filter((node) => node.type === "mesh") ?? [];
 
   return (
@@ -801,6 +896,24 @@ function Studio() {
           </button>
 
           <button
+            onClick={() => imageFileRef.current?.click()}
+            disabled={!project || busy}
+            className="inline-flex items-center gap-2 rounded-lg border border-[#568cff]/30 px-3 py-2 text-xs text-[#a9c9ff] hover:border-[#568cff]/70 disabled:opacity-40 cursor-pointer"
+            title="Import a visual reference image. The connected AI can inspect the actual image through the MCP get_reference_image tool."
+          >
+            <FileUp size={14} /> Import Image
+          </button>
+          <input
+            ref={imageFileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(event) => {
+              void importReferenceImage(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
+          <button
             onClick={() => glbFileRef.current?.click()}
             disabled={!project || busy}
             className="inline-flex items-center gap-2 rounded-lg border border-[#83f0ce]/25 px-3 py-2 text-xs text-[#83f0ce] hover:border-[#83f0ce]/60 disabled:opacity-40 cursor-pointer"
@@ -834,6 +947,13 @@ function Studio() {
               event.currentTarget.value = "";
             }}
           />
+          <a
+            href="/ais"
+            className="inline-flex items-center gap-2 rounded-lg border border-[#568cff]/30 px-3 py-2 text-xs text-[#a9c9ff] hover:border-[#568cff]/70"
+            title="Open the full MVM 3D AI Systems workbench"
+          >
+            <Activity size={14} /> AIS
+          </a>
           <button
             onClick={() => void copyAIContext()}
             className="forge-action inline-flex items-center gap-2 rounded-lg border border-[#83f0ce]/25 px-3 py-2 text-xs text-[#83f0ce] hover:border-[#83f0ce]/60 cursor-pointer"
