@@ -15,7 +15,13 @@ const SCOPE_SET = new Set<string>(MCP_OAUTH_SCOPES);
 
 export function mcpPublicBaseUrl(): string {
   const configured = process.env.MCP_PUBLIC_URL?.trim();
-  let base = configured || "https://mvm3d.vercel.app";
+  const projectHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  const deploymentHost = process.env.VERCEL_URL?.trim();
+  const systemHost = projectHost || deploymentHost;
+  const inferredBase = systemHost
+    ? `https://${systemHost.replace(/^https?:\\/\\//i, "")}`
+    : "https://mvm3d.vercel.app";
+  let base = configured || inferredBase;
   while (base.endsWith("/")) base = base.slice(0, -1);
   const parsed = new URL(base);
   if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
