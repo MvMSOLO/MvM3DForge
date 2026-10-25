@@ -10,15 +10,19 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { isMigrationFile, migrationName, pendingMigrations } from "./migration-plan.mjs";
+import {
+  isMigrationFile,
+  isRetryableMigrationError,
+  migrationInventoryFailures,
+  migrationName,
+  pendingMigrations,
+  requiresDatabaseForMigrations,
+} from "./migration-plan.mjs";
 import { projectRoot } from "./with-app-env.mjs";
 
 const AUTH_MIGRATION = "0001_auth.sql";
 
-/**
- * The auth-on copy of the Better Auth schema and its source, or null when the
- * app has not turned sign-in on (the shipped state).
- */
+/** Return the executable auth migration and the reference copy, if both exist. */
 function authSchemaCopy(root) {
   const copy = join(root, "migrations", AUTH_MIGRATION);
   const source = join(root, "migrations/auth", AUTH_MIGRATION);
@@ -26,19 +30,39 @@ function authSchemaCopy(root) {
   return { copy: readFileSync(copy, "utf8"), source: readFileSync(source, "utf8") };
 }
 
-test("_migrations keys on basename, not path", () => {
+test("_migrations keys on the basename", () => {
   assert.equal(migrationName("/migrations/0002_todos.sql"), "0002_todos.sql");
   assert.equal(migrationName("migrations/auth/0001_auth.sql"), "0001_auth.sql");
-  assert.equal(migrationName("0001_auth.sql"), "0001_auth.sql");
+  assert.equal(migrationName("migrations\\auth\\0001_auth.sql"), "0001_auth.sql");
 });
 
-test("a file already applied from another directory does not re-apply", () => {
-  // The auth-on path copies migrations/auth/0001_auth.sql into the globbed
-  // directory; a database that already has it must not run it twice.
-  assert.deepEqual(pendingMigrations(["/migrations/0001_auth.sql"], ["0001_auth.sql"]), []);
+test("only top-level SQL files are executable migrations", () => {
+  assert.equal(isMigrationFile("0001_auth.sql"), true);
+  assert.equal(isMigrationFile("/migrations/0001_auth.sql"), true);
+  assert.equal(isMigrationFile("migrations/auth/0001_auth.sql"), false);
+  assert.equal(isMigrationFile("/migrations/auth/0001_auth.sql"), false);
+  assert.equal(isMigrationFile("auth"), false);
+  assert.equal(isMigrationFile("README.md"), false);
+
+  // Even if a caller accidentally passes a recursive listing, the auth source
+  // copy cannot collide with the executable root migration of the same name.
+  assert.deepEqual(
+    pendingMigrations(
+      ["/migrations/0001_auth.sql", "/migrations/auth/0001_auth.sql"],
+      [],
+    ),
+    [{ name: "0001_auth.sql", path: "/migrations/0001_auth.sql" }],
+  );
 });
 
-test("pending migrations are returned in name order", () => {
+test("a file already applied under the same basename is not re-applied", () => {
+  assert.deepEqual(
+    pendingMigrations(["/migrations/0001_auth.sql"], ["0001_auth.sql"]),
+    [],
+  );
+});
+
+test("pending migrations are returned in stable filename order", () => {
   assert.deepEqual(
     pendingMigrations(
       ["/migrations/0003_c.sql", "/migrations/0001_a.sql", "/migrations/0002_b.sql"],
@@ -51,40 +75,95 @@ test("pending migrations are returned in name order", () => {
   );
 });
 
-test("non-.sql entries are dropped (readdir also yields the auth/ directory)", () => {
-  assert.equal(isMigrationFile("auth"), false);
-  assert.deepEqual(pendingMigrations(["auth", "README.md"], []), []);
-});
-
-test("the auth schema ships outside the globbed directory", () => {
-  const migrationsDir = join(projectRoot(), "migrations");
-  assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []), []);
-  assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
-});
-
-test("this workspace's auth schema copy is byte-identical to its source", () => {
-  // An edited copy diverges silently: basename keying skips it on a database
-  // that already ran the original, and applies it on a fresh PGLite preview.
-  const pair = authSchemaCopy(projectRoot());
-  if (pair === null) return; // sign-in off — nothing has been copied up
-  assert.equal(
-    pair.copy,
-    pair.source,
-    "migrations/0001_auth.sql has been edited — it must stay a verbatim copy of migrations/auth/0001_auth.sql",
+test("an empty production inventory or missing auth schema is rejected", () => {
+  assert.deepEqual(migrationInventoryFailures(["auth", "README.md"]), [
+    "No top-level SQL migrations found in migrations/.",
+  ]);
+  assert.deepEqual(
+    migrationInventoryFailures(["0002_projects.sql"], { requireAuthSchema: true }),
+    ["Required auth migration migrations/0001_auth.sql is missing."],
+  );
+  assert.deepEqual(
+    migrationInventoryFailures(["0001_auth.sql", "0002_projects.sql"], {
+      requireAuthSchema: true,
+    }),
+    [],
   );
 });
 
-test("the copy check reads both files and catches an edit", () => {
+test("production requires DATABASE_URL but Preview can explicitly build without it", () => {
+  assert.equal(requiresDatabaseForMigrations({ VERCEL_ENV: "production" }), true);
+  assert.equal(
+    requiresDatabaseForMigrations({ NODE_ENV: "production" }),
+    true,
+  );
+  assert.equal(
+    requiresDatabaseForMigrations({ NODE_ENV: "production", VERCEL_ENV: "preview" }),
+    false,
+  );
+  assert.equal(
+    requiresDatabaseForMigrations({ NODE_ENV: "development", VERCEL_ENV: "development" }),
+    false,
+  );
+});
+
+test("only transient connection and serialization errors are retried", () => {
+  assert.equal(isRetryableMigrationError({ code: "ECONNRESET" }), true);
+  assert.equal(isRetryableMigrationError({ code: "08006" }), true);
+  assert.equal(isRetryableMigrationError({ code: "40001" }), true);
+  assert.equal(isRetryableMigrationError({ code: "40P01" }), true);
+  assert.equal(isRetryableMigrationError({ code: "42P01" }), false);
+  assert.equal(isRetryableMigrationError({ code: "42501" }), false);
+  assert.equal(isRetryableMigrationError(null), false);
+});
+
+test("the repository ships the executable root migrations and a reference auth source", () => {
+  const migrationsDir = join(projectRoot(), "migrations");
+  const entries = readdirSync(migrationsDir);
+  const rootSql = entries.filter(isMigrationFile).sort((a, b) => a.localeCompare(b));
+
+  assert.ok(rootSql.length > 0, "top-level migrations/*.sql must exist");
+  assert.ok(rootSql.includes(AUTH_MIGRATION), "auth schema must be on the executable root path");
+  assert.ok(readdirSync(join(migrationsDir, "auth")).includes(AUTH_MIGRATION));
+  assert.deepEqual(
+    pendingMigrations(entries, []).map(({ name }) => name),
+    rootSql,
+  );
+  assert.deepEqual(migrationInventoryFailures(entries, { requireAuthSchema: true }), []);
+
+  // A recursive listing must still schedule this migration exactly once.
+  assert.equal(
+    pendingMigrations(
+      [...entries, "/migrations/auth/0001_auth.sql"],
+      [],
+    ).filter(({ name }) => name === AUTH_MIGRATION).length,
+    1,
+  );
+});
+
+test("the executable auth migration remains byte-identical to its source copy", () => {
+  const pair = authSchemaCopy(projectRoot());
+  assert.ok(pair, "both migrations/0001_auth.sql and migrations/auth/0001_auth.sql must exist");
+  assert.equal(
+    pair.copy,
+    pair.source,
+    "migrations/0001_auth.sql must remain a verbatim copy of migrations/auth/0001_auth.sql",
+  );
+});
+
+test("the copy check detects a drifted auth schema", () => {
   const root = mkdtempSync(join(tmpdir(), "auth-schema-"));
   mkdirSync(join(root, "migrations/auth"), { recursive: true });
-  writeFileSync(join(root, "migrations/auth", AUTH_MIGRATION), "create table t ();\n");
+  writeFileSync(join(root, "migrations/auth", AUTH_MIGRATION), "create table t ();\\n");
   assert.equal(authSchemaCopy(root), null);
 
-  writeFileSync(join(root, "migrations", AUTH_MIGRATION), "create table t ();\n");
+  writeFileSync(join(root, "migrations", AUTH_MIGRATION), "create table t ();\\n");
   const same = authSchemaCopy(root);
+  assert.ok(same);
   assert.equal(same.copy, same.source);
 
-  writeFileSync(join(root, "migrations", AUTH_MIGRATION), "create table t (x int);\n");
+  writeFileSync(join(root, "migrations", AUTH_MIGRATION), "create table t (x int);\\n");
   const drifted = authSchemaCopy(root);
+  assert.ok(drifted);
   assert.notEqual(drifted.copy, drifted.source);
 });
