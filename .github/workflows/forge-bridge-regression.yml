@@ -30,7 +30,7 @@ jobs:
         run: npm run typecheck
 
       - name: Run MCP, auth and scene regression tests
-        run: node --experimental-strip-types --test src/lib/auth/mcp-auth-policy.test.ts src/lib/mcp/api-keys.test.ts src/forge/sdk/execute.test.ts src/forge/ai-mcp.test.ts src/forge/export-glb.test.ts src/forge/remote-mcp-server.test.ts
+        run: node --experimental-strip-types --test src/lib/auth/mcp-auth-policy.test.ts src/lib/mcp/oauth-config.test.ts src/lib/mcp/api-keys.test.ts src/forge/sdk/execute.test.ts src/forge/ai-mcp.test.ts src/forge/export-glb.test.ts src/forge/remote-mcp-server.test.ts
 
       - name: Lint project
         run: npm run lint
@@ -44,8 +44,6 @@ jobs:
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: 22
 
       - name: Check production OAuth discovery and MCP authentication boundary
         run: node scripts/mcp-production-smoke.mjs
