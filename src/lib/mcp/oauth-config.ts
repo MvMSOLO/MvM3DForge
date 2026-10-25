@@ -2,7 +2,7 @@
  * Pure OAuth server configuration. Keep this module free of database/auth imports
  * so metadata endpoints are available before any user signs in.
  */
-import { configuredVercelOrigin, normalizeConfiguredOrigin } from "@/lib/auth/origin-policy";
+import { configuredVercelOrigin, normalizeConfiguredOrigin } from "../auth/origin-policy.ts";
 export const MCP_OAUTH_SCOPES = [
   "project:read",
   "scene:write",
