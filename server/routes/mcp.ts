@@ -20,12 +20,11 @@ function getRequestHost(event: H3Event): string {
 }
 
 function originAllowed(event: H3Event): boolean {
-  const headers = requestHeaders(event);
   return isAllowedMcpRequestOrigin({
-    origin: headers.get("origin"),
-    forwardedHost: headers.get("x-forwarded-host"),
-    host: headers.get("host"),
-    forwardedProto: headers.get("x-forwarded-proto"),
+    origin: getHeader(event, "origin"),
+    forwardedHost: getHeader(event, "x-forwarded-host"),
+    host: getHeader(event, "host"),
+    forwardedProto: getHeader(event, "x-forwarded-proto"),
   }, process.env);
 }
 
