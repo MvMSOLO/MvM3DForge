@@ -158,7 +158,9 @@ export function createPersistedMcpServer(
   const server = new McpServer({ name: "MvM 3D Forge", version: "1.1.0" });
 
   function requireScope(scope: McpScope): void {
-    if (!context.scopes.includes(scope) && !context.scopes.includes("*")) {
+    // Never interpret a wildcard as an administrator grant. API-key and OAuth
+    // scope parsers intentionally accept only named, least-privilege scopes.
+    if (!context.scopes.includes(scope)) {
       throw new Error(`Permission denied: API key requires the '${scope}' scope.`);
     }
   }
