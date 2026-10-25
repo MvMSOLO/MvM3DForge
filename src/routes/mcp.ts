@@ -3,8 +3,8 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { createPersistedMcpServer } from "@/forge/remote-mcp-server.ts";
 import { authenticateMcpApiKey } from "@/lib/mcp/api-keys.server.ts";
 import { verifyMcpOAuthAccessToken } from "@/lib/mcp/oauth.server.ts";
-import { dbSource } from "@/lib/db.ts";
 import { mcpPublicBaseUrl } from "@/lib/mcp/oauth-config.ts";
+import { databaseReadinessResponse, inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 function corsHeaders(): Headers {
   return new Headers({
     "access-control-allow-origin": "*",
@@ -22,6 +22,8 @@ function withCors(response: Response): Response {
 async function handleMcp(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
   if (!["GET", "POST", "DELETE"].includes(request.method)) return withCors(Response.json({ error: "Method not allowed." }, { status: 405 }));
+  const readiness = await inspectDatabaseReadiness();
+  if (!readiness.ok) return withCors(databaseReadinessResponse(readiness));
   const authorization = request.headers.get("authorization") ?? "";
   const keyMatch = /^Bearer\s+(mvmf_live_[A-Za-z0-9_-]{32,160})$/.exec(authorization);
   const oauthMatch = /^Bearer\s+(mvm3d_oauth_[A-Za-z0-9._-]{80,4096})$/.exec(authorization);
@@ -53,14 +55,6 @@ async function handleMcp(request: Request): Promise<Response> {
         message: error instanceof Error ? error.message.slice(0, 300) : "Unknown verification error",
       });
     }
-  }
-
-  if (process.env.NODE_ENV === "production" && dbSource !== "neon") {
-    console.error("[mcp] request rejected because persistent Postgres is unavailable", { dbSource });
-    return withCors(Response.json(
-      { error: "Remote MCP requires a persistent Postgres DATABASE_URL; the endpoint will not use ephemeral storage." },
-      { status: 503 },
-    ));
   }
 
   if (!userId) {
