@@ -79,9 +79,18 @@ async function handleMcp(request: Request): Promise<Response> {
     await server.connect(transport);
     return withCors(await transport.handleRequest(request));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "MCP request failed.";
-    console.error("[mcp] transport request failed", { method: request.method, message: message.slice(0, 1000) });
-    return withCors(Response.json({ error: message.slice(0, 1000) }, { status: 500 }));
+    const rawCode = error && typeof error === "object" && "code" in error ? error.code : undefined;
+    const driverCode = typeof rawCode === "string" && /^[A-Za-z0-9_-]{2,16}$/.test(rawCode)
+      ? rawCode
+      : undefined;
+    console.error("[mcp] transport request failed after readiness probe", {
+      method: request.method,
+      ...(driverCode ? { driverCode } : {}),
+    });
+    return withCors(Response.json(
+      { error: "MCP request failed. Please retry later." },
+      { status: 500 },
+    ));
   }
 }
 export const Route = createFileRoute("/mcp")({
