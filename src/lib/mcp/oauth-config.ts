@@ -28,7 +28,7 @@ export function mcpPublicBaseUrl(): string {
     ? branchHost || deploymentHost
     : projectHost || deploymentHost || branchHost;
   const inferredBase = systemHost
-    ? \`https://\${systemHost.replace(/^https?:\/\//i, "")}\`
+    ? "https://" + systemHost.replace(/^https?:\/\//i, "")
     : isPreview
       ? ""
       : process.env.NODE_ENV === "production"
