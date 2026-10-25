@@ -28,14 +28,15 @@ export function mcpPublicBaseUrl(): string {
     ? branchHost || deploymentHost
     : projectHost || deploymentHost || branchHost;
   const inferredBase = systemHost
-    ? `https://${systemHost.replace(/^https?:\\/\\//i, "")}`
+    ? \`https://\${systemHost.replace(/^https?:\/\//i, "")}\`
     : isPreview
       ? ""
       : process.env.NODE_ENV === "production"
         ? "https://3dmvm.vercel.app"
         : "http://localhost:8080";
 
-  const base = (configured || inferredBase).replace(/\\/+$/, "");
+  let base = configured || inferredBase;
+  while (base.endsWith("/")) base = base.slice(0, -1);
   if (!base) {
     throw new Error("MCP_PUBLIC_URL could not be inferred for this Vercel preview deployment.");
   }
@@ -53,7 +54,7 @@ export function mcpResourceUrl(): string {
 
 export function normalizeOAuthScopes(value: string | null | undefined): McpOAuthScope[] | null {
   const raw = (value || "").trim();
-  const scopes = [...new Set(raw ? raw.split(/\\s+/).filter(Boolean) : [])];
+  const scopes = [...new Set(raw ? raw.split(/\s+/).filter(Boolean) : [])];
   if (!scopes.length) return ["project:read"];
   if (scopes.some((scope) => !SCOPE_SET.has(scope))) return null;
   return scopes as McpOAuthScope[];
