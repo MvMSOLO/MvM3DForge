@@ -11,6 +11,7 @@ export type AuthOriginEnvironment = Record<string, string | undefined>;
 export type AuthOriginPolicy = {
   trustedOrigins: string[];
   dynamicAllowedHosts: string[];
+  explicitBaseURL?: string;
   mode: "production" | "preview" | "development";
 };
 
@@ -119,5 +120,6 @@ export function resolveAuthOriginPolicy(env: AuthOriginEnvironment): AuthOriginP
     mode,
     trustedOrigins: [...exactOrigins],
     dynamicAllowedHosts: [...dynamicAllowedHosts],
+    ...(explicitOrigin ? { explicitBaseURL: explicitOrigin.origin } : {}),
   };
 }
