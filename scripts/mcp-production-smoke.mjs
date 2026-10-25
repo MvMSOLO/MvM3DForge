@@ -53,6 +53,25 @@ const authorizeBody = await authorizeResponse.json();
 assert.equal(authorizeBody.error, "invalid_request");
 pass("authorize rejects incomplete request");
 
+// Credential-free negative check: the consent route must reject an attacker
+// origin before reading the form, session, database, or issuing a code.
+const foreignConsentResponse = await request("/oauth/consent", {
+  method: "POST",
+  headers: {
+    origin: "https://attacker.example",
+    "content-type": "application/x-www-form-urlencoded",
+  },
+  body: "decision=allow",
+});
+assert.equal(foreignConsentResponse.status, 403, "foreign-origin consent POST must be rejected");
+assert.doesNotMatch(
+  foreignConsentResponse.headers.get("access-control-allow-origin") || "",
+  /attacker\.example/i,
+  "a rejected origin must never be reflected in CORS headers",
+);
+assert.match(await foreignConsentResponse.text(), /untrusted origin/i);
+pass("foreign-origin OAuth consent rejected without reflecting Origin");
+
 for (const path of ["/oauth/register", "/oauth/token", "/mcp"]) {
   const response = await request(path, {
     method: "OPTIONS",
