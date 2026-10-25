@@ -93,7 +93,9 @@ export default defineEventHandler(async (event) => {
   const challengeMethod = body.code_challenge_method || "";
   const resource = body.resource || "";
   const requestedScopes = normalizeOAuthScopes(body.requested_scope);
-  const scopes = body.scope?.trim() ? normalizeOAuthScopes(body.scope) : [];
+  const parsedScopes = body.scope?.trim() ? normalizeOAuthScopes(body.scope) : [];
+  // Normalize invalid/missing scope input to an empty list; the approval path below rejects it.
+  const scopes = parsedScopes ?? [];
 
   console.info("[mcp-oauth] consent form parsed", {
     decision: body.decision === "allow" || body.decision === "deny" ? body.decision : "missing",
