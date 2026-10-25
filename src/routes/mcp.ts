@@ -7,7 +7,6 @@ import { mcpPublicBaseUrl } from "@/lib/mcp/oauth-config.ts";
 import { databaseReadinessResponse, inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 import {
   isTrustedHost,
-  isTrustedOrigin,
   normalizeConfiguredOrigin,
   normalizeHostHeader,
   resolveAuthOriginPolicy,
@@ -68,7 +67,7 @@ function originAllowed(request: Request): boolean {
       })
     : undefined;
 
-  if (effectiveOrigin && origin === effectiveOrigin && isTrustedOrigin(origin, policy.trustedOrigins)) {
+  if (effectiveOrigin && origin === effectiveOrigin && hostAllowed(request)) {
     return true;
   }
 
