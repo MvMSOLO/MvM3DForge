@@ -53,6 +53,20 @@ const authorizeBody = await authorizeResponse.json();
 assert.equal(authorizeBody.error, "invalid_request");
 pass("authorize rejects incomplete request");
 
+// This request intentionally supplies a foreign Origin and an invalid/incomplete
+// consent form. It must be rejected at the origin gate before session/database work.
+const foreignConsentResponse = await request("/oauth/consent", {
+  method: "POST",
+  headers: {
+    origin: "https://attacker.example",
+    "content-type": "application/x-www-form-urlencoded",
+  },
+  body: "decision=allow",
+});
+assert.equal(foreignConsentResponse.status, 403, "foreign-origin consent POST must be rejected");
+assert.match(await foreignConsentResponse.text(), /untrusted origin/i);
+pass("foreign-origin OAuth consent is rejected");
+
 for (const path of ["/oauth/register", "/oauth/token", "/mcp"]) {
   const response = await request(path, {
     method: "OPTIONS",
@@ -97,4 +111,4 @@ assert.equal(mcpBody.jsonrpc, "2.0");
 assert.ok(mcpBody.error, "MCP unauthenticated request must return a JSON-RPC error");
 pass("MCP authentication boundary and OAuth challenge");
 
-console.log("[mcp-production-smoke] All production smoke checks passed. No credentials or data mutations were used.");
+console.log("[mcp-production-smoke] All production smoke checks passed. No credentials or account/data mutations were used.");
