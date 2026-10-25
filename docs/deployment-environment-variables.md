@@ -28,7 +28,7 @@ The Vercel project was inspected without decrypting secrets:
 
 ## Origin/domain policy (Task 10)
 
-The active Vercel project `mvm3d` was inspected read-only. Its domain metadata identifies `https://mvm3d.vercel.app` as the verified public domain and lists the project aliases `mvm3d-mvmsolos-projects.vercel.app` and `mvm3d-git-main-mvmsolos-projects.vercel.app`. The code keeps `https://mvm3d.vercel.app` as the canonical OAuth/MCP issuer; the two generated aliases are exact browser-origin entries only, not replacement issuers. The separate `3dmvm` and `mvm3dforge` projects are not MVM3D's Production origins.
+The active Vercel project `mvm3d` was inspected read-only. Its domain metadata identifies `https://mvm3d.vercel.app` as the verified public domain and lists the project aliases `mvm3d-mvmsolos-projects.vercel.app` and `mvm3d-git-main-mvmsolos-projects.vercel.app`. The code keeps `https://mvm3d.vercel.app` as the canonical MCP OAuth issuer; the two generated aliases are exact allowed auth/browser/host origins only, not replacement issuers. The separate `3dmvm` and `mvm3dforge` projects are not MVM3D's Production origins.
 
 - Production Better Auth origin checks use the canonical domain, the two exact audited project aliases, and only exact `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` values that validate as HTTPS `*.vercel.app` hosts. There is no wildcard allowing arbitrary `*.vercel.app` origins.
 - Vercel Preview trusts only its own exact branch/deployment host. It does not inherit the Production project origin, a branch host from another deployment, or a stale `BETTER_AUTH_URL` that points at Production.
