@@ -38,7 +38,7 @@ function firstForwardedValue(value: string): string {
 
 /** Normalize a raw Host / X-Forwarded-Host authority without trusting paths. */
 function normalizeAuthority(value: string | null | undefined): string | null {
-  if (!value || value !== value.trim() || /[\s/@?#]/.test(value)) return null;
+  if (!value || value !== value.trim() || /[\s/@?#*]/.test(value)) return null;
   try {
     const url = new URL("https://" + value);
     if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
