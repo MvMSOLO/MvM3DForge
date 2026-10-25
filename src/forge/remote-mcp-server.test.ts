@@ -111,7 +111,7 @@ describe("Remote MCP server end-to-end tool registry", () => {
       const appResource = await session.client.readResource({ uri: "ui://mvm3d/viewport.html" });
       assert.equal(appResource.contents[0]?.mimeType, "text/html;profile=mcp-app");
       assert.match(appResource.contents[0]?.text ?? "", /MVM 3D/);
-      assert.match(appResource.contents[0]?.text ?? "", /ui\\/notifications\\/tool-result/);
+      assert.ok((appResource.contents[0]?.text ?? "").includes("ui/notifications/tool-result"));
     } finally {
       await session.close();
     }
