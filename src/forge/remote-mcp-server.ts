@@ -137,6 +137,9 @@ function primitiveGeometry(kind: "box" | "sphere" | "cylinder" | "cone" | "torus
   }
 }
 
+const MCP_APPS_VIEW_URI = "ui://mvm3d/viewport.html";
+const MCP_APPS_VIEW_HTML = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>MVM3D AI Viewport</title><style>\n:root{color-scheme:dark;--bg:#081019;--panel:#0d1823;--line:rgba(196,220,236,.14);--text:#eef7fb;--muted:#91a8b8;--mint:#83f0ce;--amber:#f3cb83;--red:#ff9f9f}*{box-sizing:border-box}body{margin:0;padding:12px;background:var(--bg);color:var(--text);font:13px/1.5 system-ui,-apple-system,\"Segoe UI\",sans-serif}.shell{overflow:hidden;border:1px solid var(--line);border-radius:16px;background:linear-gradient(155deg,rgba(131,240,206,.04),transparent 45%),var(--panel)}header{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:13px 15px;border-bottom:1px solid var(--line)}.brand{font-size:11px;font-weight:800;letter-spacing:.16em}.brand span{color:var(--mint)}.eyebrow{margin-top:3px;font-size:9px;text-transform:uppercase;letter-spacing:.17em;color:var(--muted)}.pill{white-space:nowrap;border:1px solid rgba(131,240,206,.3);border-radius:999px;background:rgba(131,240,206,.07);padding:4px 8px;color:var(--mint);font-size:9px}.main{padding:14px}.title{font-size:16px;font-weight:750;line-height:1.3;letter-spacing:-.02em}.desc{margin-top:4px;color:var(--muted);font-size:11px}.preview{position:relative;display:grid;place-items:center;min-height:180px;max-height:560px;overflow:hidden;margin-top:13px;border:1px solid var(--line);border-radius:12px;background:radial-gradient(ellipse at 50% 35%,rgba(83,127,160,.18),transparent 58%),#080d13}.preview:before{content:\"\";position:absolute;inset:0;pointer-events:none;opacity:.22;background-image:linear-gradient(rgba(160,190,210,.15) 1px,transparent 1px),linear-gradient(90deg,rgba(160,190,210,.15) 1px,transparent 1px);background-size:28px 28px;mask-image:linear-gradient(to bottom,black,transparent)}#shot{display:none;position:relative;z-index:1;max-width:100%;max-height:540px;object-fit:contain}.empty{position:relative;z-index:1;max-width:330px;padding:26px;text-align:center;color:var(--muted)}.orb{display:grid;place-items:center;width:38px;height:38px;margin:0 auto 10px;border:1px solid rgba(131,240,206,.3);border-radius:12px;background:rgba(131,240,206,.06);color:var(--mint);font-size:19px}.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}.metric{min-width:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:rgba(0,0,0,.12)}.label{font-size:8px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}.value{margin-top:4px;overflow:hidden;font-size:10px;font-weight:650;white-space:nowrap;text-overflow:ellipsis}.logs{display:none;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px;background:rgba(0,0,0,.14)}pre{max-height:150px;overflow:auto;margin:6px 0 0;white-space:pre-wrap;word-break:break-word;font:10px/1.5 ui-monospace,Consolas,monospace;color:#c8d9e5}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.btn{border:1px solid var(--line);border-radius:9px;padding:8px 11px;background:rgba(255,255,255,.025);color:#d9e5eb;font:600 10px system-ui;cursor:pointer}.primary{border-color:transparent;background:var(--mint);color:#071511}.btn:disabled{opacity:.4;cursor:default}.foot{display:flex;gap:7px;margin-top:11px;color:var(--muted);font-size:9px}.dot{flex:none;width:6px;height:6px;margin-top:5px;border-radius:50%;background:var(--mint)}.mono{font-family:ui-monospace,Consolas,monospace}@media(max-width:360px){.metrics{grid-template-columns:1fr}}\n</style></head><body><div class=\"shell\"><header><div><div class=\"brand\">MVM <span>3D</span> / AIS</div><div class=\"eyebrow\">Visual execution bridge</div></div><div id=\"state\" class=\"pill\">Connecting…</div></header><main class=\"main\"><div class=\"title\" id=\"title\">Waiting for the first result</div><div class=\"desc\" id=\"desc\">Call a viewport or image tool to display its real result here.</div><div class=\"preview\"><img id=\"shot\" alt=\"Actual MVM3D viewport screenshot\"><div class=\"empty\" id=\"empty\"><div class=\"orb\">◇</div><strong id=\"empty-title\">Your 3D preview appears here</strong><div id=\"empty-text\" style=\"margin-top:6px;font-size:10px\">This panel displays the image returned by the connected MCP tool. It does not generate a fake render.</div></div></div><div class=\"metrics\"><div class=\"metric\"><div class=\"label\">Job status</div><div id=\"job-status\" class=\"value\">—</div></div><div class=\"metric\"><div class=\"label\">Project</div><div id=\"project\" class=\"value mono\">—</div></div><div class=\"metric\"><div class=\"label\">Job / asset</div><div id=\"kind\" class=\"value\">—</div></div></div><div id=\"logs\" class=\"logs\"><div class=\"label\">Execution details</div><pre id=\"log-text\"></pre></div><div class=\"actions\"><button id=\"ask\" class=\"btn primary\" type=\"button\" disabled>Ask AI to inspect / improve</button><button id=\"studio\" class=\"btn\" type=\"button\">Open MVM3D Studio ↗</button></div><div class=\"foot\"><span class=\"dot\"></span><span id=\"foot-text\">Ready to receive MCP tool results. Clients without MCP Apps UI still receive standard text and image blocks.</span></div></main></div>\n<script>\n(function(){\"use strict\";var nextId=1,pending=Object.create(null),lastSummary=null,lastImage=null,toolInput=null;function el(id){return document.getElementById(id)}function state(text,tone){el(\"state\").textContent=text;el(\"state\").style.color=tone===\"red\"?\"var(--red)\":tone===\"amber\"?\"var(--amber)\":\"var(--mint)\";el(\"state\").style.borderColor=tone===\"red\"?\"rgba(255,159,159,.3)\":tone===\"amber\"?\"rgba(243,203,131,.3)\":\"rgba(131,240,206,.3)\"}function request(method,params){return new Promise(function(resolve,reject){var id=nextId++,timer=setTimeout(function(){delete pending[id];reject(new Error(\"Host request timed out\"))},5000);pending[id]={resolve:resolve,reject:reject,timer:timer};window.parent.postMessage({jsonrpc:\"2.0\",id:id,method:method,params:params||{}},\"*\")})}function notify(method,params){window.parent.postMessage({jsonrpc:\"2.0\",method:method,params:params||{}},\"*\")}function summaryFrom(content){for(var i=0;i<content.length;i++){if(content[i]&&content[i].type===\"text\"&&typeof content[i].text===\"string\"){try{return JSON.parse(content[i].text)}catch(_){}}}return null}function render(result){var content=result&&Array.isArray(result.content)?result.content:[];lastSummary=summaryFrom(content);lastImage=null;for(var i=0;i<content.length;i++){var item=content[i];if(item&&item.type===\"image\"&&typeof item.data===\"string\"&&typeof item.mimeType===\"string\"){lastImage=\"data:\"+item.mimeType+\";base64,\"+item.data;break}}var s=lastSummary;if(lastImage){el(\"shot\").src=lastImage;el(\"shot\").style.display=\"block\";el(\"empty\").style.display=\"none\";el(\"title\").textContent=s&&s.status===\"completed\"?\"3D viewport · completed\":\"Visual result returned\";el(\"desc\").textContent=\"This is the actual image block returned by MVM3D.\"}else{el(\"shot\").removeAttribute(\"src\");el(\"shot\").style.display=\"none\";el(\"empty\").style.display=\"block\";el(\"title\").textContent=s&&s.waitingForStudio?\"Waiting for the Studio browser worker\":s&&s.status===\"failed\"?\"Execution failed\":\"Tool result received\";el(\"empty-title\").textContent=s&&s.waitingForStudio?\"Studio has not returned a frame yet\":\"No viewport image in this response\";el(\"empty-text\").textContent=s&&s.waitingForStudio?\"Keep the exact saved project open in Studio, then call get_execution_job again after the job finishes.\":\"This response may contain a reference image or a pending job. Check the details below.\"}el(\"job-status\").textContent=s&&s.status||\"image / reference\";el(\"project\").textContent=s&&s.projectId||toolInput&&toolInput.projectId||\"—\";el(\"kind\").textContent=s&&s.kind||toolInput&&toolInput.textureId||\"tool result\";var info=[];if(s&&s.error)info.push(\"Error: \"+s.error);if(s&&s.result)info.push(JSON.stringify(s.result,null,2));if(result&&result.isError)info.push(\"MCP reported this tool call as an error.\");if(!info.length&&!s){for(var j=0;j<content.length;j++){if(content[j]&&content[j].type===\"text\"&&content[j].text)info.push(content[j].text)}}el(\"logs\").style.display=info.length?\"block\":\"none\";el(\"log-text\").textContent=info.join(\"\\n\\n\").slice(0,12000);el(\"ask\").disabled=false;if(result&&result.isError||s&&s.status===\"failed\"){state(\"Execution error\",\"red\");el(\"foot-text\").textContent=\"Review the error, then ask the AI to fix the scene and rerun preview.\"}else if(s&&s.waitingForStudio){state(\"Waiting for Studio\",\"amber\");el(\"foot-text\").textContent=\"Keep the matching saved project open in Studio and have the AI poll get_execution_job until the screenshot arrives.\"}else if(lastImage){state(\"Real image returned\",\"\");el(\"foot-text\").textContent=\"The screenshot/reference is available inside this panel and in the tool's image content. Ask the AI to inspect it, make corrections, and render again.\"}else{state(\"Tool result ready\",\"\");el(\"foot-text\").textContent=\"If this was a reference image, the connected AI should inspect it and then call create_3d_from_image in preview mode.\"}}window.addEventListener(\"message\",function(event){if(event.source!==window.parent)return;var m=event.data;if(!m||typeof m!==\"object\")return;if(m.id!==undefined&&pending[m.id]){var p=pending[m.id];delete pending[m.id];clearTimeout(p.timer);if(m.error)p.reject(new Error(m.error.message||\"Host request failed\"));else p.resolve(m.result);return}if(m.method===\"ui/notifications/tool-input\"){toolInput=m.params&&m.params.arguments||{};if(toolInput.jobId)el(\"desc\").textContent=\"Execution job \"+toolInput.jobId+\" · waiting for tool result…\"}if(m.method===\"ui/notifications/tool-input-partial\"){toolInput=m.params&&m.params.arguments||toolInput}if(m.method===\"ui/notifications/tool-result\")render(m.params||{});if(m.method===\"ui/notifications/tool-cancelled\"){state(\"Tool cancelled\",\"amber\");el(\"foot-text\").textContent=m.params&&m.params.reason||\"The host cancelled this tool call.\"}if(m.method===\"ui/notifications/host-context-changed\"&&m.params&&m.params.theme){document.documentElement.style.colorScheme=m.params.theme}if(m.method===\"ui/resource-teardown\"&&m.id!==undefined)window.parent.postMessage({jsonrpc:\"2.0\",id:m.id,result:{}},\"*\")});el(\"ask\").addEventListener(\"click\",function(){var prompt=\"Inspect the latest MVM3D visual result shown in the AIS viewport. Use the actual returned image, not only source code. \";if(lastSummary&&lastSummary.status)prompt+=\"Current job status: \"+lastSummary.status+\". \";if(lastSummary&&lastSummary.error)prompt+=\"Reported error: \"+lastSummary.error+\". \";prompt+=\"If the scene is wrong, diagnose it, call run_script or create_3d_from_image in preview mode, poll get_execution_job until completed, inspect the next screenshot, and iterate. Do not apply changes until I approve.\";request(\"ui/message\",{role:\"user\",content:{type:\"text\",text:prompt}}).then(function(){state(\"Improvement request sent\",\"\")}).catch(function(){state(\"Host message unsupported\",\"amber\");el(\"foot-text\").textContent=\"This client may not support UI-to-chat messages. Ask the AI directly to inspect the latest MCP image result.\"})});el(\"studio\").addEventListener(\"click\",function(){request(\"ui/open-link\",{url:\"https://mvm3d.vercel.app/studio\"}).catch(function(){state(\"Use Studio link\",\"amber\");el(\"foot-text\").textContent=\"Open https://mvm3d.vercel.app/studio in another tab. Keep the matching saved cloud project open while MCP jobs run.\"})});async function init(){try{await request(\"ui/initialize\",{protocolVersion:\"2026-01-26\",appInfo:{name:\"MVM3D AI Viewport\",version:\"1.0.0\"},appCapabilities:{availableDisplayModes:[\"inline\",\"fullscreen\"]}});notify(\"ui/notifications/initialized\",{});state(\"Connected\",\"\");el(\"foot-text\").textContent=\"Connected to the chat host. Results appear when a compatible host invokes this MCP tool.\"}catch(_){state(\"Image / text fallback\",\"amber\");el(\"foot-text\").textContent=\"This client may not support MCP Apps. Tools still return standard text and image content; ask get_execution_job for the actual screenshot.\"}}init()})();\n</script></body></html>";
+
 export function createPersistedMcpServer(
   context: RemoteMcpContext,
   repository: McpProjectRepository = databaseProjectRepository,
@@ -202,8 +205,9 @@ export function createPersistedMcpServer(
     schema: Record<string, z.ZodTypeAny>,
     scope: McpScope,
     handler: Handler,
+    withViewportApp = false,
   ) {
-    server.tool(name, description, schema, async (args: JsonRecord) => {
+    const callback = async (args: JsonRecord) => {
       try {
         requireScope(scope);
         const output = await handler(args);
@@ -218,8 +222,31 @@ export function createPersistedMcpServer(
         const message = error instanceof Error ? error.message : "The MCP operation failed.";
         return toolError(message);
       }
-    });
+    };
+    if (withViewportApp) {
+      const appMeta = {
+        ui: { resourceUri: MCP_APPS_VIEW_URI, visibility: ["model", "app"] },
+        "ui/resourceUri": MCP_APPS_VIEW_URI,
+      };
+      (server as any).registerTool(name, { description, inputSchema: schema, _meta: appMeta }, callback);
+    } else {
+      server.tool(name, description, schema, callback);
+    }
   }
+
+  server.resource(
+    "mvm3d-viewport-app",
+    MCP_APPS_VIEW_URI,
+    { description: "MVM3D visual viewport for real tool results", mimeType: "text/html;profile=mcp-app" },
+    async () => ({
+      contents: [{
+        uri: MCP_APPS_VIEW_URI,
+        mimeType: "text/html;profile=mcp-app",
+        text: MCP_APPS_VIEW_HTML,
+        _meta: { ui: { prefersBorder: true } },
+      }],
+    } as any),
+  );
 
   server.resource(
     "scene-summary",
@@ -299,6 +326,7 @@ export function createPersistedMcpServer(
         ],
       };
     },
+    true,
   );
 
   register("create_project", "Create and persist a new 3D project from a supported starter template.", {
@@ -585,6 +613,7 @@ export function createPersistedMcpServer(
         instructions: "Keep the exact saved project open in Studio. Poll get_execution_job with this jobId until completed or failed. When completed, inspect the returned MCP image and logs. Iterate with preview if needed; apply changes only after the visual result is acceptable.",
       };
     },
+    true,
   );
 
   register(
@@ -635,6 +664,7 @@ export function createPersistedMcpServer(
         instructions: "Keep the target project open in Studio until this job completes. The returned image is captured from the real viewport canvas.",
       };
     },
+    true,
   );
 
   register(
@@ -660,6 +690,7 @@ export function createPersistedMcpServer(
       }
       return { content };
     },
+    true,
   );
 
   server.tool("export_project_glb", "Export a project as actual binary glTF (GLB) bytes embedded in the MCP result.", {
