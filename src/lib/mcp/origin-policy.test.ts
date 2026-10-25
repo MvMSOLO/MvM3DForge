@@ -4,6 +4,8 @@ import {
   CANONICAL_MCP_ORIGIN,
   isAllowedMcpHost,
   isAllowedMcpOrigin,
+  isAllowedMcpRequestOrigin,
+  isAllowedSameOriginConsentPost,
   resolveAllowedMcpHosts,
   resolveAllowedMcpOrigins,
   resolveMcpRequestHost,
@@ -170,6 +172,116 @@ test("malformed non-empty origin override fails closed", () => {
   const env = { NODE_ENV: "production", MCP_ALLOWED_ORIGINS: "https://evil.example.test/path" };
   assert.deepEqual(resolveAllowedMcpOrigins(env), []);
   assert.ok(!isAllowedMcpOrigin("https://evil.example.test", env));
+});
+
+test("default MCP requests require Origin to match the effective public host", () => {
+  const env = {
+    NODE_ENV: "production",
+    VERCEL_ENV: "production",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_URL: "mvm3d-deployment-123.vercel.app",
+  };
+
+  assert.equal(isAllowedMcpRequestOrigin({
+    origin: "https://mvm3d.vercel.app",
+    forwardedHost: "mvm3d.vercel.app",
+    host: "internal-gateway.local",
+    forwardedProto: "https",
+  }, env), true);
+
+  assert.equal(isAllowedMcpRequestOrigin({
+    origin: "https://mvm3d.vercel.app",
+    forwardedHost: "mvm3d-deployment-123.vercel.app",
+    host: "internal-gateway.local",
+    forwardedProto: "https",
+  }, env), false, "two individually known aliases are not interchangeable browser origins");
+
+  assert.equal(isAllowedMcpRequestOrigin({
+    origin: "https://attacker.example",
+    forwardedHost: "mvm3d.vercel.app",
+    forwardedProto: "https",
+  }, env), false);
+});
+
+test("exact MCP_ALLOWED_ORIGINS enables only listed cross-origin browser clients", () => {
+  const env = {
+    NODE_ENV: "production",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    MCP_ALLOWED_ORIGINS: "https://dashboard.example.test",
+  };
+
+  assert.equal(isAllowedMcpRequestOrigin({
+    origin: "https://dashboard.example.test",
+    forwardedHost: "mvm3d.vercel.app",
+    forwardedProto: "https",
+  }, env), true);
+
+  assert.equal(isAllowedMcpRequestOrigin({
+    origin: "https://attacker.example",
+    forwardedHost: "mvm3d.vercel.app",
+    forwardedProto: "https",
+  }, env), false);
+});
+
+test("OAuth consent accepts only a trusted same-origin POST or a matching Referer fallback", () => {
+  const env = {
+    NODE_ENV: "production",
+    VERCEL_ENV: "production",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+  };
+
+  assert.equal(isAllowedSameOriginConsentPost({
+    origin: "https://mvm3d.vercel.app",
+    forwardedHost: "mvm3d.vercel.app",
+    host: "internal-gateway.local",
+    forwardedProto: "https",
+  }, env), true);
+
+  assert.equal(isAllowedSameOriginConsentPost({
+    origin: "https://attacker.example",
+    forwardedHost: "attacker.example",
+    host: "attacker.example",
+    forwardedProto: "https",
+  }, env), false);
+
+  assert.equal(isAllowedSameOriginConsentPost({
+    origin: "https://mvm3d.vercel.app",
+    forwardedHost: "mvm3d-deployment-123.vercel.app",
+    host: "internal-gateway.local",
+    forwardedProto: "https",
+  }, env), false);
+
+  assert.equal(isAllowedSameOriginConsentPost({
+    origin: "null",
+    referer: "https://mvm3d.vercel.app/oauth/authorize",
+    forwardedHost: "mvm3d.vercel.app",
+    forwardedProto: "https",
+  }, env), false);
+
+  assert.equal(isAllowedSameOriginConsentPost({
+    forwardedHost: "mvm3d.vercel.app",
+    forwardedProto: "https",
+  }, env), false);
+
+  assert.equal(isAllowedSameOriginConsentPost({
+    referer: "https://mvm3d.vercel.app/oauth/authorize",
+    forwardedHost: "mvm3d.vercel.app",
+    forwardedProto: "https",
+  }, env), true);
+});
+
+test("Preview consent cannot use the Production origin", () => {
+  const env = {
+    NODE_ENV: "production",
+    VERCEL_ENV: "preview",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_BRANCH_URL: "mvm3d-git-task-10-mvmsolos-projects.vercel.app",
+  };
+  assert.equal(isAllowedSameOriginConsentPost({
+    origin: "https://mvm3d.vercel.app",
+    forwardedHost: "mvm3d-git-task-10-mvmsolos-projects.vercel.app",
+    forwardedProto: "https",
+  }, env), false);
 });
 
 test("HTTP loopback origin is accepted only in non-production on the default port", () => {
