@@ -17,9 +17,17 @@ const LOCAL_DEV_ORIGINS = [
   "http://[::1]:8080",
 ] as const;
 
+type RuntimeMode = "production" | "preview" | "development";
+
+function runtimeMode(env: McpOriginEnvironment): RuntimeMode {
+  const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
+  if (vercelEnv === "preview") return "preview";
+  if (vercelEnv === "production" || env.NODE_ENV === "production") return "production";
+  return "development";
+}
+
 function isProduction(env: McpOriginEnvironment): boolean {
-  return env.VERCEL_ENV?.trim().toLowerCase() === "production" ||
-    env.NODE_ENV === "production";
+  return runtimeMode(env) === "production";
 }
 
 function firstForwardedValue(value: string): string {
@@ -97,11 +105,12 @@ export function resolveAllowedMcpHosts(env: McpOriginEnvironment): string[] {
     return [...new Set(parseCsvHosts(override, allowLocalHttp))];
   }
 
+  const mode = runtimeMode(env);
   const hostValues = [
     env.MCP_PUBLIC_URL,
-    ...(env.VERCEL_ENV?.trim().toLowerCase() === "preview"
+    ...(mode === "preview"
       ? [env.VERCEL_BRANCH_URL, env.VERCEL_URL]
-      : production
+      : mode === "production"
         ? [env.VERCEL_PROJECT_PRODUCTION_URL, env.VERCEL_URL]
         : []),
   ];
@@ -109,9 +118,9 @@ export function resolveAllowedMcpHosts(env: McpOriginEnvironment): string[] {
     .map((value) => normalizeConfiguredHost(value, allowLocalHttp))
     .filter((host): host is string => Boolean(host));
 
-  if (production) {
+  if (mode === "production") {
     hosts.push(new URL(CANONICAL_MCP_ORIGIN).host);
-  } else {
+  } else if (mode === "development") {
     hosts.push(...LOCAL_DEV_HOSTS);
   }
   return [...new Set(hosts)];
