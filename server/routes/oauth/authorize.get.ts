@@ -8,6 +8,7 @@ import {
   mcpResourceUrl,
   normalizeOAuthScopes,
 } from "../../utils/mcp-oauth.ts";
+import { inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 
 function badRequest(event: H3Event, message: string) {
   setResponseStatus(event, 400);
@@ -18,6 +19,12 @@ function badRequest(event: H3Event, message: string) {
 export default defineEventHandler(async (event) => {
   setHeader(event, "Cache-Control", "no-store");
   const url = getRequestURL(event);
+  const readiness = await inspectDatabaseReadiness();
+  if (!readiness.ok) {
+    setResponseStatus(event, 503);
+    setHeader(event, "Content-Type", "application/json; charset=utf-8");
+    return { error: "temporarily_unavailable", error_description: readiness.publicMessage };
+  }
   const query = url.searchParams;
   const clientId = query.get("client_id") || "";
   const redirectUri = query.get("redirect_uri") || "";

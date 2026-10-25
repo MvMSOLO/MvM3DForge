@@ -3,8 +3,8 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { createPersistedMcpServer } from "@/forge/remote-mcp-server.ts";
 import { authenticateMcpApiKey } from "@/lib/mcp/api-keys.server.ts";
 import { verifyMcpOAuthAccessToken } from "@/lib/mcp/oauth.server.ts";
-import { dbSource } from "@/lib/db.ts";
 import { mcpPublicBaseUrl } from "@/lib/mcp/oauth-config.ts";
+import { databaseReadinessResponse, inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 function corsHeaders(): Headers {
   return new Headers({
     "access-control-allow-origin": "*",
@@ -22,6 +22,8 @@ function withCors(response: Response): Response {
 async function handleMcp(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
   if (!["GET", "POST", "DELETE"].includes(request.method)) return withCors(Response.json({ error: "Method not allowed." }, { status: 405 }));
+  const readiness = await inspectDatabaseReadiness();
+  if (!readiness.ok) return withCors(databaseReadinessResponse(readiness));
   const authorization = request.headers.get("authorization") ?? "";
   const keyMatch = /^Bearer\s+(mvmf_live_[A-Za-z0-9_-]{32,160})$/.exec(authorization);
   const oauthMatch = /^Bearer\s+(mvm3d_oauth_[A-Za-z0-9._-]{80,4096})$/.exec(authorization);
@@ -55,14 +57,6 @@ async function handleMcp(request: Request): Promise<Response> {
     }
   }
 
-  if (process.env.NODE_ENV === "production" && dbSource !== "neon") {
-    console.error("[mcp] request rejected because persistent Postgres is unavailable", { dbSource });
-    return withCors(Response.json(
-      { error: "Remote MCP requires a persistent Postgres DATABASE_URL; the endpoint will not use ephemeral storage." },
-      { status: 503 },
-    ));
-  }
-
   if (!userId) {
     const resourceMetadata = `${mcpPublicBaseUrl()}/.well-known/oauth-protected-resource/mcp`;
     console.warn("[mcp] request rejected: missing or invalid bearer credential", {
@@ -85,9 +79,18 @@ async function handleMcp(request: Request): Promise<Response> {
     await server.connect(transport);
     return withCors(await transport.handleRequest(request));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "MCP request failed.";
-    console.error("[mcp] transport request failed", { method: request.method, message: message.slice(0, 1000) });
-    return withCors(Response.json({ error: message.slice(0, 1000) }, { status: 500 }));
+    const rawCode = error && typeof error === "object" && "code" in error ? error.code : undefined;
+    const driverCode = typeof rawCode === "string" && /^[A-Za-z0-9_-]{2,16}$/.test(rawCode)
+      ? rawCode
+      : undefined;
+    console.error("[mcp] transport request failed after readiness probe", {
+      method: request.method,
+      ...(driverCode ? { driverCode } : {}),
+    });
+    return withCors(Response.json(
+      { error: "MCP request failed. Please retry later." },
+      { status: 500 },
+    ));
   }
 }
 export const Route = createFileRoute("/mcp")({

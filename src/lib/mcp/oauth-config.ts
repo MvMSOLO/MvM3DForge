@@ -15,14 +15,32 @@ const SCOPE_SET = new Set<string>(MCP_OAUTH_SCOPES);
 
 export function mcpPublicBaseUrl(): string {
   const configured = process.env.MCP_PUBLIC_URL?.trim();
+  const vercelEnvironment = process.env.VERCEL_ENV?.trim().toLowerCase();
+  const isPreview = vercelEnvironment === "preview";
   const projectHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  const branchHost = process.env.VERCEL_BRANCH_URL?.trim();
   const deploymentHost = process.env.VERCEL_URL?.trim();
-  const systemHost = projectHost || deploymentHost;
+
+  // An explicit URL wins. Otherwise, previews must identify themselves using
+  // their branch/deployment host instead of accidentally borrowing the
+  // production project's hostname. Production prefers its stable project host.
+  const systemHost = isPreview
+    ? branchHost || deploymentHost
+    : projectHost || deploymentHost || branchHost;
   const inferredBase = systemHost
-    ? `https://${systemHost.replace(/^https?:\/\//i, "")}`
-    : "https://mvm3d.vercel.app";
+    ? "https://" + systemHost.replace(/^https?:\/\//i, "")
+    : isPreview
+      ? ""
+      : process.env.NODE_ENV === "production"
+        ? "https://mvm3d.vercel.app"
+        : "http://localhost:8080";
+
   let base = configured || inferredBase;
   while (base.endsWith("/")) base = base.slice(0, -1);
+  if (!base) {
+    throw new Error("MCP_PUBLIC_URL could not be inferred for this Vercel preview deployment.");
+  }
+
   const parsed = new URL(base);
   if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
     throw new Error("MCP_PUBLIC_URL must use HTTPS outside local development.");

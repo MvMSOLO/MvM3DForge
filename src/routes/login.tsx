@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -13,6 +13,11 @@ import {
 } from "lucide-react";
 import { authClient, authEnabled } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import {
+  emailPasswordErrorMessage,
+  hasPersistedAuthUser,
+  validateEmailPasswordForm,
+} from "@/lib/auth/email-password-flow";
 
 export const Route = createFileRoute("/login")({ component: LoginPage });
 
@@ -39,69 +44,62 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // React state updates can be batched; the ref closes the same-tick
+    // double-submit window while the request is in flight.
+    if (submittingRef.current) return;
+
     setError("");
     setNotice("");
-
-    const cleanEmail = email.trim().toLowerCase();
-    if (mode === "signup" && name.trim().length < 2) {
-      setError("Enter your name (at least 2 characters).");
-      return;
-    }
-    if (!cleanEmail || !cleanEmail.includes("@")) {
-      setError("Enter a valid email address.");
-      return;
-    }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    const validation = validateEmailPasswordForm({ mode, name, email, password });
+    if (!validation.ok) {
+      setError(validation.message);
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const callbackURL = getReturnPath();
       const result =
         mode === "signup"
           ? await authClient.signUp.email({
-              name: name.trim(),
-              email: cleanEmail,
-              password,
+              name: validation.name,
+              email: validation.email,
+              password: validation.password,
               callbackURL,
             })
           : await authClient.signIn.email({
-              email: cleanEmail,
-              password,
+              email: validation.email,
+              password: validation.password,
               callbackURL,
             });
 
       if (result.error) {
-        const details = result.error as unknown as {
-          message?: unknown;
-          status?: unknown;
-          code?: unknown;
-        };
-        const fallback = mode === "signup" ? "Could not create your account." : "Could not sign in.";
-        const message =
-          typeof details.message === "string" && details.message.trim()
-            ? details.message
-            : details.code === "AUTH_DATABASE_NOT_CONFIGURED" || details.status === 503
-              ? "Account storage is not connected on this deployment yet. A persistent database must be connected before accounts can be created or used."
-              : typeof details.status === "number" && details.status >= 500
-                ? "The authentication server could not complete this request. Check that the deployment database is connected, then try again."
-                : fallback;
-        setError(message);
+        setError(emailPasswordErrorMessage(mode, result.error));
+        return;
+      }
+
+      // Never report success just because the client returned an empty payload:
+      // a real persisted Better Auth user must be present.
+      if (!hasPersistedAuthUser(result.data)) {
+        setError(emailPasswordErrorMessage(mode, null));
         return;
       }
 
       setNotice(mode === "signup" ? "Account created. Opening MVM 3D Forge…" : "Signed in. Opening MVM 3D Forge…");
       window.location.assign(callbackURL);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Sign-in failed. Please try again.");
+    } catch {
+      // Do not render arbitrary thrown/server exception text; it can contain DB
+      // names or SQL details. Diagnostics stay in server-only logs.
+      setError(emailPasswordErrorMessage(mode, null));
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -166,10 +164,10 @@ function LoginPage() {
               </div>
 
               <div className="mb-5 grid grid-cols-2 rounded-xl border border-white/[0.09] bg-black/20 p-1">
-                <button type="button" onClick={() => { setMode("signin"); setError(""); setNotice(""); }} className={`rounded-lg px-3 py-2.5 text-xs font-semibold transition ${mode === "signin" ? "bg-[#202d37] text-white shadow" : "text-[#7f8e9b] hover:text-white"}`}>
+                <button type="button" disabled={submitting} onClick={() => { setMode("signin"); setError(""); setNotice(""); }} className={`rounded-lg px-3 py-2.5 text-xs font-semibold transition ${mode === "signin" ? "bg-[#202d37] text-white shadow" : "text-[#7f8e9b] hover:text-white"}`}>
                   Sign in
                 </button>
-                <button type="button" onClick={() => { setMode("signup"); setError(""); setNotice(""); }} className={`rounded-lg px-3 py-2.5 text-xs font-semibold transition ${mode === "signup" ? "bg-[#202d37] text-white shadow" : "text-[#7f8e9b] hover:text-white"}`}>
+                <button type="button" disabled={submitting} onClick={() => { setMode("signup"); setError(""); setNotice(""); }} className={`rounded-lg px-3 py-2.5 text-xs font-semibold transition ${mode === "signup" ? "bg-[#202d37] text-white shadow" : "text-[#7f8e9b] hover:text-white"}`}>
                   Create account
                 </button>
               </div>
@@ -180,7 +178,7 @@ function LoginPage() {
                     Name
                     <span className="relative mt-1.5 block">
                       <UserRound size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#637584]" />
-                      <input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required minLength={2} maxLength={80} className="w-full rounded-xl border border-white/[0.1] bg-[#080d12] py-3 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-[#50606e] focus:border-[#83f0ce]/60" placeholder="Your name" />
+                      <input disabled={submitting} autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required minLength={2} maxLength={80} className="w-full rounded-xl border border-white/[0.1] bg-[#080d12] py-3 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-[#50606e] focus:border-[#83f0ce]/60" placeholder="Your name" />
                     </span>
                   </label>
                 )}
@@ -188,15 +186,15 @@ function LoginPage() {
                   Email
                   <span className="relative mt-1.5 block">
                     <Mail size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#637584]" />
-                    <input type="email" autoComplete="email" inputMode="email" value={email} onChange={(event) => setEmail(event.target.value)} required maxLength={254} className="w-full rounded-xl border border-white/[0.1] bg-[#080d12] py-3 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-[#50606e] focus:border-[#83f0ce]/60" placeholder="you@example.com" />
+                    <input disabled={submitting} type="email" autoComplete="email" inputMode="email" value={email} onChange={(event) => setEmail(event.target.value)} required maxLength={254} className="w-full rounded-xl border border-white/[0.1] bg-[#080d12] py-3 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-[#50606e] focus:border-[#83f0ce]/60" placeholder="you@example.com" />
                   </span>
                 </label>
                 <label className="block text-xs font-medium text-[#a8b5c0]">
                   Password
                   <span className="relative mt-1.5 block">
                     <LockKeyhole size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#637584]" />
-                    <input type={showPassword ? "text" : "password"} autoComplete={mode === "signup" ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} maxLength={128} className="w-full rounded-xl border border-white/[0.1] bg-[#080d12] py-3 pl-9 pr-11 text-sm text-white outline-none transition placeholder:text-[#50606e] focus:border-[#83f0ce]/60" placeholder="At least 8 characters" />
-                    <button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((shown) => !shown)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6f8190] transition hover:text-white">
+                    <input disabled={submitting} type={showPassword ? "text" : "password"} autoComplete={mode === "signup" ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} maxLength={128} className="w-full rounded-xl border border-white/[0.1] bg-[#080d12] py-3 pl-9 pr-11 text-sm text-white outline-none transition placeholder:text-[#50606e] focus:border-[#83f0ce]/60" placeholder="At least 8 characters" />
+                    <button disabled={submitting} type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((shown) => !shown)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6f8190] transition hover:text-white">
                       {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                     </button>
                   </span>
