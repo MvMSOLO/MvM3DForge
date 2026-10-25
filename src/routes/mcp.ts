@@ -5,25 +5,68 @@ import { authenticateMcpApiKey } from "@/lib/mcp/api-keys.server.ts";
 import { verifyMcpOAuthAccessToken } from "@/lib/mcp/oauth.server.ts";
 import { mcpPublicBaseUrl } from "@/lib/mcp/oauth-config.ts";
 import { databaseReadinessResponse, inspectDatabaseReadiness } from "@/lib/db-readiness.server";
-function corsHeaders(): Headers {
-  return new Headers({
-    "access-control-allow-origin": "*",
+import {
+  isAllowedMcpHost,
+  isAllowedMcpOrigin,
+  resolveMcpRequestHost,
+} from "@/lib/mcp/origin-policy";
+function requestHost(request: Request): string | null {
+  return resolveMcpRequestHost(
+    request.headers.get("x-forwarded-host"),
+    request.headers.get("host") || new URL(request.url).host,
+  );
+}
+
+function hostAllowed(request: Request): boolean {
+  const host = requestHost(request);
+  return Boolean(host && isAllowedMcpHost(host, process.env));
+}
+
+function originAllowed(request: Request): boolean {
+  return isAllowedMcpOrigin(request.headers.get("origin"), process.env);
+}
+
+function corsHeaders(request?: Request): Headers {
+  const headers = new Headers({
     "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
     "access-control-allow-headers": "Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-Id",
     "access-control-expose-headers": "Mcp-Session-Id, Mcp-Protocol-Version",
     "cache-control": "no-store",
+    "vary": "Origin",
   });
+  if (!request || !request.headers.get("origin")) {
+    headers.set("access-control-allow-origin", "*");
+  } else if (hostAllowed(request) && originAllowed(request)) {
+    headers.set("access-control-allow-origin", request.headers.get("origin")!);
+  }
+  return headers;
 }
-function withCors(response: Response): Response {
+
+function withCors(response: Response, request?: Request): Response {
   const headers = new Headers(response.headers);
-  corsHeaders().forEach((value, key) => { if (key === "cache-control" || !headers.has(key)) headers.set(key, value); });
+  const cors = corsHeaders(request);
+  for (const [key, value] of cors.entries()) {
+    if (key === "cache-control" || key === "vary" || !headers.has(key)) headers.set(key, value);
+  }
+  if (request?.headers.get("origin") && (!hostAllowed(request) || !originAllowed(request))) {
+    headers.delete("access-control-allow-origin");
+  }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
+
 async function handleMcp(request: Request): Promise<Response> {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
-  if (!["GET", "POST", "DELETE"].includes(request.method)) return withCors(Response.json({ error: "Method not allowed." }, { status: 405 }));
+  const origin = request.headers.get("origin");
+  if (!hostAllowed(request) || !originAllowed(request)) {
+    return withCors(Response.json({ error: "Origin or host is not allowed." }, { status: 403 }), request);
+  }
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders(request) });
+  }
+  if (!["GET", "POST", "DELETE"].includes(request.method)) {
+    return withCors(Response.json({ error: "Method not allowed." }, { status: 405 }), request);
+  }
   const readiness = await inspectDatabaseReadiness();
-  if (!readiness.ok) return withCors(databaseReadinessResponse(readiness));
+  if (!readiness.ok) return withCors(databaseReadinessResponse(readiness), request);
   const authorization = request.headers.get("authorization") ?? "";
   const keyMatch = /^Bearer\s+(mvmf_live_[A-Za-z0-9_-]{32,160})$/.exec(authorization);
   const oauthMatch = /^Bearer\s+(mvm3d_oauth_[A-Za-z0-9._-]{80,4096})$/.exec(authorization);
@@ -35,7 +78,7 @@ async function handleMcp(request: Request): Promise<Response> {
     try {
       identity = await authenticateMcpApiKey(keyMatch[1]);
     } catch {
-      return withCors(Response.json({ error: "MCP authentication service is temporarily unavailable." }, { status: 503 }));
+      return withCors(Response.json({ error: "MCP authentication service is temporarily unavailable." }, { status: 503 }), request);
     }
     if (identity) {
       userId = identity.userId;
@@ -71,13 +114,13 @@ async function handleMcp(request: Request): Promise<Response> {
           "www-authenticate": `Bearer realm="MvM 3D MCP", resource_metadata="${resourceMetadata}", error="invalid_token"`,
         },
       },
-    ));
+    ), request);
   }
   try {
     const server = createPersistedMcpServer({ userId, scopes });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
-    return withCors(await transport.handleRequest(request));
+    return withCors(await transport.handleRequest(request), request);
   } catch (error) {
     const rawCode = error && typeof error === "object" && "code" in error ? error.code : undefined;
     const driverCode = typeof rawCode === "string" && /^[A-Za-z0-9_-]{2,16}$/.test(rawCode)
@@ -90,7 +133,7 @@ async function handleMcp(request: Request): Promise<Response> {
     return withCors(Response.json(
       { error: "MCP request failed. Please retry later." },
       { status: 500 },
-    ));
+    ), request);
   }
 }
 export const Route = createFileRoute("/mcp")({
