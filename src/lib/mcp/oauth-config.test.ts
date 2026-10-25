@@ -99,6 +99,33 @@ test("production fallback uses the stable production project host", () => {
   });
 });
 
+test("Preview rejects a stale MCP_PUBLIC_URL that points at Production", () => {
+  withEnv({
+    NODE_ENV: "production",
+    MCP_PUBLIC_URL: "https://mvm3d.vercel.app",
+    VERCEL_ENV: "preview",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_BRANCH_URL: "mvm3d-git-task-10-mvmsolos-projects.vercel.app",
+    VERCEL_URL: "mvm3d-pr-10-mvmsolos-projects.vercel.app",
+  }, () => {
+    assert.throws(() => mcpPublicBaseUrl(), /must match this Vercel preview/i);
+  });
+});
+
+test("Production rejects MCP_PUBLIC_URL with credentials or an external port", () => {
+  for (const MCP_PUBLIC_URL of [
+    "https://user:secret@mvm3d.vercel.app/",
+    "https://mvm3d.vercel.app:444",
+  ]) {
+    withEnv({
+      NODE_ENV: "production",
+      MCP_PUBLIC_URL,
+      VERCEL_ENV: "production",
+      VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    }, () => assert.throws(() => mcpPublicBaseUrl(), /valid root origin/i));
+  }
+});
+
 test("local development defaults to localhost", () => {
   withEnv({ NODE_ENV: "development" }, () => {
     assert.equal(mcpPublicBaseUrl(), "http://localhost:8080");
