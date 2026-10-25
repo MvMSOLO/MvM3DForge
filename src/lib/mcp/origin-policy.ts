@@ -1,0 +1,284 @@
+/**
+ * Exact host/origin policy for the remote MCP endpoint.
+ *
+ * Vercel's canonical public hostname is mvm3d.vercel.app. Other hosts are
+ * trusted only when explicitly configured or supplied by this deployment's
+ * Vercel environment. In particular, do not accept every hostname that merely
+ * resembles a project slug and do not retain aliases for other projects.
+ */
+export type McpOriginEnvironment = Record<string, string | undefined>;
+
+export const CANONICAL_MCP_ORIGIN = "https://mvm3d.vercel.app";
+const VERIFIED_PRODUCTION_ALIASES = [
+  "mvm3d-mvmsolos-projects.vercel.app",
+  "mvm3d-git-main-mvmsolos-projects.vercel.app",
+] as const;
+
+const LOCAL_DEV_HOSTS = ["localhost:8080", "127.0.0.1:8080", "[::1]:8080"] as const;
+const LOCAL_DEV_ORIGINS = [
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+  "http://[::1]:8080",
+] as const;
+
+type RuntimeMode = "production" | "preview" | "development";
+
+function runtimeMode(env: McpOriginEnvironment): RuntimeMode {
+  const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
+  // Local CI may mirror Vercel variables while NODE_ENV remains development.
+  if (env.NODE_ENV && env.NODE_ENV !== "production") return "development";
+  if (vercelEnv === "preview") return "preview";
+  if (vercelEnv === "production" || env.NODE_ENV === "production") return "production";
+  return "development";
+}
+
+function firstForwardedValue(value: string): string {
+  return value.split(",", 1)[0]?.trim() ?? "";
+}
+
+/** Normalize a raw Host / X-Forwarded-Host authority without trusting paths. */
+function normalizeAuthority(value: string | null | undefined): string | null {
+  if (!value || value !== value.trim() || /[\s/@?#*]/.test(value)) return null;
+  try {
+    const url = new URL("https://" + value);
+    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
+    return url.host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** Normalize an explicitly configured allowed host. Host entries are exact; no patterns. */
+function normalizeConfiguredHost(value: string | undefined, allowLocalHttp: boolean): string | null {
+  if (!value || value !== value.trim()) return null;
+  try {
+    const url = new URL(value.includes("://") ? value : "https://" + value);
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname.toLowerCase());
+    if (
+      url.username ||
+      url.password ||
+      url.hostname.includes("*") ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" && !(allowLocalHttp && local && url.protocol === "http:")) ||
+      (url.port !== "" && !local)
+    ) {
+      return null;
+    }
+    return url.host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function parseOrigin(value: string, allowLocalHttp: boolean): URL | null {
+  if (!value || value !== value.trim()) return null;
+  try {
+    const url = new URL(value);
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname.toLowerCase());
+    if (
+      url.username ||
+      url.password ||
+      url.hostname.includes("*") ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" && !(allowLocalHttp && local && url.protocol === "http:")) ||
+      (url.port !== "" && !local)
+    ) {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveAllowedMcpHosts(env: McpOriginEnvironment): string[] {
+  const mode = runtimeMode(env);
+  const allowLocalHttp = mode === "development";
+  const override = env.MCP_ALLOWED_HOSTS;
+  if (override?.trim()) {
+    // An explicit override intentionally replaces inferred defaults. Any invalid
+    // item fails closed rather than leaving a partially applied allow-list.
+    const entries = override.split(",").map((entry) => entry.trim());
+    const hosts = entries.map((entry) => normalizeConfiguredHost(entry, allowLocalHttp));
+    if (entries.some((entry) => !entry) || hosts.some((host) => !host)) return [];
+    return [...new Set(hosts as string[])];
+  }
+
+  const configuredPublicUrl = env.MCP_PUBLIC_URL?.trim();
+  const configuredPublicHost = configuredPublicUrl
+    ? normalizeConfiguredHost(configuredPublicUrl, allowLocalHttp)
+    : null;
+  if (configuredPublicUrl && !configuredPublicHost) return [];
+
+  const platformHosts = mode === "preview"
+    ? [env.VERCEL_BRANCH_URL, env.VERCEL_URL]
+    : mode === "production"
+      ? [env.VERCEL_PROJECT_PRODUCTION_URL, env.VERCEL_URL]
+      : [];
+  const exactPlatformHosts = platformHosts
+    .map((value) => normalizeConfiguredHost(value, allowLocalHttp))
+    .filter((host): host is string => Boolean(host));
+
+  if (configuredPublicHost && mode === "preview" && !exactPlatformHosts.includes(configuredPublicHost)) {
+    // Do not let an inherited Production MCP_PUBLIC_URL make Preview trust
+    // Production as a host/issuer.
+    return [];
+  }
+  if (configuredPublicHost && mode === "production") {
+    const verifiedProductionHosts = new Set<string>([
+      new URL(CANONICAL_MCP_ORIGIN).host,
+      ...VERIFIED_PRODUCTION_ALIASES,
+      ...exactPlatformHosts,
+    ]);
+    if (!verifiedProductionHosts.has(configuredPublicHost)) return [];
+  }
+
+  const hosts = mode === "development"
+    ? [configuredPublicHost, ...LOCAL_DEV_HOSTS]
+    : exactPlatformHosts;
+  if (configuredPublicHost && !hosts.includes(configuredPublicHost)) hosts.push(configuredPublicHost);
+
+  if (mode === "production") {
+    hosts.push(new URL(CANONICAL_MCP_ORIGIN).host, ...VERIFIED_PRODUCTION_ALIASES);
+  }
+  return [...new Set(hosts.filter((host): host is string => Boolean(host)))];
+}
+
+/** Prefer the canonical forwarded host set by Vercel; never fall back when it is malformed. */
+export function resolveMcpRequestHost(
+  forwardedHost: string | null | undefined,
+  directHost: string | null | undefined,
+): string | null {
+  if (forwardedHost?.trim()) {
+    return normalizeAuthority(firstForwardedValue(forwardedHost));
+  }
+  if (directHost?.trim()) {
+    return normalizeAuthority(firstForwardedValue(directHost));
+  }
+  return null;
+}
+
+export function isAllowedMcpHost(
+  requestHost: string | null | undefined,
+  env: McpOriginEnvironment,
+): boolean {
+  const normalizedRequestHost = normalizeAuthority(requestHost);
+  if (!normalizedRequestHost) return false;
+  return resolveAllowedMcpHosts(env).includes(normalizedRequestHost);
+}
+
+export function resolveAllowedMcpOrigins(env: McpOriginEnvironment): string[] {
+  const mode = runtimeMode(env);
+  const allowLocalHttp = mode === "development";
+  const override = env.MCP_ALLOWED_ORIGINS;
+  if (override?.trim()) {
+    // Exact normalized origins only. Any malformed item denies the whole list.
+    const entries = override.split(",").map((entry) => entry.trim());
+    const origins = entries.map((entry) => parseOrigin(entry, allowLocalHttp)?.origin);
+    if (entries.some((entry) => !entry) || origins.some((origin) => !origin)) return [];
+    return [...new Set(origins as string[])];
+  }
+
+  const origins = resolveAllowedMcpHosts(env)
+    .map((host) => "https://" + host);
+  if (mode === "development") origins.push(...LOCAL_DEV_ORIGINS);
+  return [...new Set(origins)];
+}
+
+/** Non-browser MCP clients omit Origin; browser origins must match an exact allow-list entry. */
+export function isAllowedMcpOrigin(
+  originHeader: string | null | undefined,
+  env: McpOriginEnvironment,
+): boolean {
+  if (originHeader === null || originHeader === undefined) return true;
+  if (!originHeader.trim()) return false;
+  const parsed = parseOrigin(originHeader, runtimeMode(env) === "development");
+  if (!parsed) return false;
+  return resolveAllowedMcpOrigins(env).includes(parsed.origin);
+}
+
+/**
+ * An Origin-bearing MCP request must match the public request host by default.
+ * Cross-origin browser clients are allowed only when an operator has set the
+ * exact MCP_ALLOWED_ORIGINS override. Non-browser transports may omit Origin.
+ */
+export function isAllowedMcpRequestOrigin(input: {
+  origin?: string | null;
+  forwardedHost?: string | null;
+  host?: string | null;
+  forwardedProto?: string | null;
+}, env: McpOriginEnvironment): boolean {
+  if (input.origin === null || input.origin === undefined) return true;
+  if (!isAllowedMcpOrigin(input.origin, env)) return false;
+
+  const mode = runtimeMode(env);
+  const allowLocalHttp = mode === "development";
+  const parsedOrigin = parseOrigin(input.origin, allowLocalHttp);
+  const requestHost = resolveMcpRequestHost(input.forwardedHost, input.host);
+  if (!parsedOrigin || !requestHost || !isAllowedMcpHost(requestHost, env)) return false;
+
+  const forwardedProto = input.forwardedProto?.split(",", 1)[0]?.trim().toLowerCase();
+  if (forwardedProto && forwardedProto !== "https" && forwardedProto !== "http") return false;
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(requestHost);
+  const protocol = forwardedProto || (local ? "http" : "https");
+  const effectiveOrigin = parseOrigin(protocol + "://" + requestHost, allowLocalHttp);
+  if (effectiveOrigin && effectiveOrigin.origin.toLowerCase() === parsedOrigin.origin.toLowerCase()) {
+    return true;
+  }
+
+  // resolveAllowedMcpOrigins treats a non-empty override as the complete exact
+  // cross-origin allow-list, so this exception cannot match inferred hosts.
+  return Boolean(env.MCP_ALLOWED_ORIGINS?.trim());
+}
+
+/**
+ * Cookie-bearing OAuth consent is a same-origin browser POST. A trusted MCP
+ * browser origin is not sufficient by itself: it must match the public host
+ * serving the consent page. If Origin is missing, a strict same-origin Referer
+ * is accepted for embedded clients that omit Origin.
+ */
+export function isAllowedSameOriginConsentPost(input: {
+  origin?: string | null;
+  referer?: string | null;
+  forwardedHost?: string | null;
+  host?: string | null;
+  forwardedProto?: string | null;
+}, env: McpOriginEnvironment): boolean {
+  const mode = runtimeMode(env);
+  const allowLocalHttp = mode === "development";
+  let sourceOrigin: string | undefined;
+
+  if (input.origin !== null && input.origin !== undefined) {
+    if (!input.origin.trim()) return false;
+    const parsedOrigin = parseOrigin(input.origin, allowLocalHttp);
+    if (!parsedOrigin) return false;
+    sourceOrigin = parsedOrigin.origin.toLowerCase();
+  } else if (input.referer) {
+    try {
+      const referer = new URL(input.referer);
+      if (referer.username || referer.password || referer.hash) return false;
+      const parsedOrigin = parseOrigin(referer.origin, allowLocalHttp);
+      if (!parsedOrigin) return false;
+      sourceOrigin = parsedOrigin.origin.toLowerCase();
+    } catch {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  if (!isAllowedMcpOrigin(sourceOrigin, env)) return false;
+  const requestHost = resolveMcpRequestHost(input.forwardedHost, input.host);
+  if (!requestHost || !isAllowedMcpHost(requestHost, env)) return false;
+
+  const forwardedProto = input.forwardedProto?.split(",", 1)[0]?.trim().toLowerCase();
+  if (forwardedProto && forwardedProto !== "https" && forwardedProto !== "http") return false;
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(requestHost);
+  const protocol = forwardedProto || (local ? "http" : "https");
+  const effectiveOrigin = parseOrigin(protocol + "://" + requestHost, allowLocalHttp);
+  return Boolean(effectiveOrigin && effectiveOrigin.origin.toLowerCase() === sourceOrigin);
+}

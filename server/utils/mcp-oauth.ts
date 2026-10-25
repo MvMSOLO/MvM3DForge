@@ -11,6 +11,7 @@ import {
   registerMcpOAuthClient,
 } from "@/lib/mcp/oauth.server";
 import type { McpOAuthScope } from "@/lib/mcp/oauth.server";
+import { isAllowedSameOriginConsentPost } from "@/lib/mcp/origin-policy";
 import {
   MCP_OAUTH_SCOPES,
   isSafeOAuthRedirectUri,
@@ -88,49 +89,13 @@ export function requestHeaders(event: H3Event): Headers {
 
 export function isSameOriginConsentRequest(event: H3Event): boolean {
   const headers = requestHeaders(event);
-  const origin = headers.get("origin");
-  // Browsers normally send Origin for a form POST. When it is absent (some
-  // embedded clients omit it), retain the existing fallback; session + one-time
-  // PKCE values are still validated by the consent handler.
-  if (!origin) return true;
-
-  try {
-    const parsed = new URL(origin);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password ||
-        parsed.pathname !== "/" || parsed.search || parsed.hash) return false;
-
-    // Vercel can expose the public alias in x-forwarded-host while the adapter's
-    // Host header contains the deployment hostname. Comparing only Host caused
-    // legitimate same-origin consent POSTs to be rejected on some deployments.
-    const asOrigin = (value: string | null | undefined): string | null => {
-      const candidate = value?.split(",")[0]?.trim();
-      if (!candidate) return null;
-      try {
-        const normalized = new URL(candidate.includes("://") ? candidate : `https://${candidate}`);
-        if (normalized.protocol !== "https:" || normalized.username || normalized.password ||
-            normalized.pathname !== "/" || normalized.search || normalized.hash) return null;
-        return normalized.origin.toLowerCase();
-      } catch {
-        return null;
-      }
-    };
-
-    const allowedOrigins = new Set<string>();
-    for (const candidate of [
-      headers.get("x-forwarded-host"),
-      headers.get("host"),
-      process.env.VERCEL_URL,
-      process.env.VERCEL_BRANCH_URL,
-      process.env.VERCEL_PROJECT_PRODUCTION_URL,
-      mcpPublicBaseUrl(),
-    ]) {
-      const normalized = asOrigin(candidate);
-      if (normalized) allowedOrigins.add(normalized);
-    }
-    return allowedOrigins.has(parsed.origin.toLowerCase());
-  } catch {
-    return false;
-  }
+  return isAllowedSameOriginConsentPost({
+    origin: headers.get("origin"),
+    referer: headers.get("referer"),
+    forwardedHost: headers.get("x-forwarded-host"),
+    host: headers.get("host"),
+    forwardedProto: headers.get("x-forwarded-proto"),
+  }, process.env);
 }
 
 export async function getMcpOAuthSession(event: H3Event): Promise<{ id: string; name: string } | null> {

@@ -37,12 +37,12 @@ import { createHmac, randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
+import { resolveAuthOriginPolicy } from "./origin-policy";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
 import { pgliteDialect } from "./pglite-dialect";
 import {
   GROK_ISSUER_DEFAULT,
-  PREVIEW_ALLOWED_HOSTS,
   PREVIEW_CLIENT_ID,
   PREVIEW_CLIENT_SECRET,
 } from "./preview";
@@ -96,76 +96,14 @@ export const authConfigured =
 // it derives the origin per-request from the (proxied) host, validated against the
 // preview allowlist, which makes the OAuth `redirect_uri` the concrete preview URL
 // the broker's preview client accepts.
-const explicitBaseURL = env("BETTER_AUTH_URL");
-const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3d.vercel.app";
-
-// Trust the canonical production origin plus exact Vercel hosts injected for this deployment.
-const COMPATIBLE_PRODUCTION_ORIGINS = [CANONICAL_PRODUCTION_ORIGIN] as const;
-
-/** Exact HTTPS hostnames injected by Vercel for this deployment, branch, and project. */
-function configuredVercelHost(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    const url = new URL(value.includes("://") ? value : "https://" + value);
-    if (
-      url.protocol !== "https:" ||
-      url.username ||
-      url.password ||
-      url.pathname !== "/" ||
-      url.search ||
-      url.hash
-    ) {
-      return undefined;
-    }
-    return url.host.toLowerCase();
-  } catch {
-    return undefined;
-  }
-}
-
-const vercelDeploymentHosts = [
-  env("VERCEL_URL"),
-  env("VERCEL_BRANCH_URL"),
-  env("VERCEL_PROJECT_PRODUCTION_URL"),
-]
-  .map(configuredVercelHost)
-  .filter((host): host is string => Boolean(host));
-
-const productionOrigins = Array.from(new Set([
-  ...COMPATIBLE_PRODUCTION_ORIGINS,
-  ...vercelDeploymentHosts.map((host) => "https://" + host),
-]));
-
-// Explicit string[] (not a readonly tuple) — Better Auth dynamic baseURL requires it.
-const previewAllowedHosts: string[] = [...PREVIEW_ALLOWED_HOSTS];
-// Local dev server accepts these loopback origins on port 8080.
-const LOCAL_DEV_ORIGINS: string[] = [
-  "http://localhost:8080",
-  "http://127.0.0.1:8080",
-  "http://[::1]:8080",
-];
+const originPolicy = resolveAuthOriginPolicy(process.env);
+const explicitBaseURL = originPolicy.explicitBaseURL;
 const baseURL = explicitBaseURL ?? {
-  // Include loopback hosts so dynamic baseURL resolves for local email/password
-  // (not only the preview wildcard).
-  allowedHosts: [...previewAllowedHosts, ...productionOrigins.map((origin) => new URL(origin).host), "localhost", "127.0.0.1", "[::1]"],
-  // `auto` → trust both http:// and https:// expansions of allowedHosts
-  // (preview is https; local dev is http).
+  allowedHosts: originPolicy.dynamicAllowedHosts,
   protocol: "auto" as const,
   fallback: "http://localhost:8080",
 };
-
-// Origins Better Auth accepts on credentialed POSTs (sign-up/sign-in, etc.).
-// Missing entries here surface as FORBIDDEN "Invalid origin".
-const trustedOrigins: string[] = [
-  ...(explicitBaseURL ? [explicitBaseURL] : []),
-  // Trust exact project aliases and platform-provided Vercel hosts only.
-  ...productionOrigins,
-  // Host wildcards (matched against Origin's host)
-  ...previewAllowedHosts,
-  // Full-origin wildcards (matched against Origin)
-  ...previewAllowedHosts.flatMap((host) => [`https://${host}`, `http://${host}`]),
-  ...LOCAL_DEV_ORIGINS,
-];
+const trustedOrigins: string[] = originPolicy.trustedOrigins;
 
 // Static broker OAuth endpoints (skip OIDC discovery on every sign-in / callback).
 // Discovery would cost an extra network hop to the broker before the popup can

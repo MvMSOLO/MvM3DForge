@@ -1,0 +1,150 @@
+/**
+ * Resolve Better Auth's trusted origins and dynamic baseURL hosts per runtime.
+ *
+ * Vercel Preview must not inherit the Production project hostname, and
+ * Production must not trust loopback origins or sandbox-preview wildcards.
+ * The shared grok-sandbox wildcard remains limited to non-production preview
+ * runtimes where that platform actually hosts the app.
+ */
+export type AuthOriginEnvironment = Record<string, string | undefined>;
+
+export type AuthOriginPolicy = {
+  trustedOrigins: string[];
+  dynamicAllowedHosts: string[];
+  explicitBaseURL?: string;
+  mode: "production" | "preview" | "development";
+};
+
+export const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3d.vercel.app";
+
+export const VERIFIED_PRODUCTION_ORIGINS = [
+  CANONICAL_PRODUCTION_ORIGIN,
+  "https://mvm3d-mvmsolos-projects.vercel.app",
+  "https://mvm3d-git-main-mvmsolos-projects.vercel.app",
+] as const;
+
+const PREVIEW_ALLOWED_HOSTS = ["*.grok-sandbox.com"] as const;
+const LOCAL_DEV_ORIGINS = [
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+  "http://[::1]:8080",
+] as const;
+const LOCAL_DEV_HOSTS = ["localhost", "127.0.0.1", "[::1]"] as const;
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
+function parseOrigin(value: string | undefined, allowLocalHttp: boolean): URL | null {
+  if (!value || value !== value.trim()) return null;
+  try {
+    const url = new URL(value);
+    if (
+      url.username ||
+      url.password ||
+      url.hostname.includes("*") ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      (url.port !== "" && !isLoopbackHost(url.hostname.toLowerCase())) ||
+      (url.protocol !== "https:" && !(allowLocalHttp && url.protocol === "http:" && isLoopbackHost(url.hostname.toLowerCase())))
+    ) {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/** Accept a platform hostname or a bare hostname, never a path or credential. */
+export function normalizeAuthPlatformHost(value: string | undefined): string | null {
+  if (!value || value !== value.trim()) return null;
+  try {
+    const url = new URL(value.includes("://") ? value : "https://" + value);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.hostname.includes("*") ||
+      url.port !== "" ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+    return url.host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function resolveMode(env: AuthOriginEnvironment): AuthOriginPolicy["mode"] {
+  const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
+  // Local/test integration runs can set VERCEL_ENV=preview to mirror deployment
+  // metadata; NODE_ENV=development/test must still retain loopback auth origins.
+  if (env.NODE_ENV && env.NODE_ENV !== "production") return "development";
+  if (vercelEnv === "preview") return "preview";
+  if (vercelEnv === "production" || env.NODE_ENV === "production") return "production";
+  return "development";
+}
+
+export function resolveAuthOriginPolicy(env: AuthOriginEnvironment): AuthOriginPolicy {
+  const mode = resolveMode(env);
+  const allowLocalHttp = mode === "development";
+  const explicitOrigin = parseOrigin(env.BETTER_AUTH_URL?.trim(), allowLocalHttp);
+  const exactPlatformHosts = (mode === "preview"
+    ? [env.VERCEL_BRANCH_URL, env.VERCEL_URL]
+    : mode === "production"
+      ? [env.VERCEL_PROJECT_PRODUCTION_URL, env.VERCEL_URL]
+      : []
+  )
+    .map(normalizeAuthPlatformHost)
+    .filter((host): host is string => Boolean(host));
+
+  const exactOrigins = new Set<string>();
+  if (mode === "production") {
+    for (const origin of VERIFIED_PRODUCTION_ORIGINS) exactOrigins.add(origin);
+    for (const host of exactPlatformHosts) exactOrigins.add("https://" + host);
+  } else if (mode === "preview") {
+    for (const host of exactPlatformHosts) exactOrigins.add("https://" + host);
+  } else {
+    for (const origin of LOCAL_DEV_ORIGINS) exactOrigins.add(origin);
+    // This wildcard is the documented shared live-preview boundary, not a
+    // catch-all Vercel or arbitrary-domain wildcard.
+    exactOrigins.add("https://*.grok-sandbox.com");
+  }
+
+  // BETTER_AUTH_URL is not proof that a domain belongs to this deployment.
+  // Honor it only in development, or when it exactly matches this environment's
+  // canonical/platform-reported origin. A stale Production URL in Preview must
+  // not be added to Preview's trusted origins or dynamic baseURL hosts.
+  const explicitAllowed = Boolean(
+    explicitOrigin && (
+      mode === "development" ||
+      (mode === "production" &&
+        (VERIFIED_PRODUCTION_ORIGINS.includes(explicitOrigin.origin as (typeof VERIFIED_PRODUCTION_ORIGINS)[number]) ||
+          exactPlatformHosts.includes(explicitOrigin.host))) ||
+      (mode === "preview" && exactPlatformHosts.includes(explicitOrigin.host))
+    )
+  );
+  if (explicitOrigin && explicitAllowed) exactOrigins.add(explicitOrigin.origin);
+
+  const dynamicAllowedHosts = new Set<string>(exactPlatformHosts);
+  if (mode === "production") {
+    for (const origin of VERIFIED_PRODUCTION_ORIGINS) dynamicAllowedHosts.add(new URL(origin).host);
+  }
+  if (explicitOrigin && explicitAllowed) dynamicAllowedHosts.add(explicitOrigin.host);
+  if (mode === "development") {
+    for (const host of LOCAL_DEV_HOSTS) dynamicAllowedHosts.add(host);
+    for (const host of PREVIEW_ALLOWED_HOSTS) dynamicAllowedHosts.add(host);
+  }
+
+  return {
+    mode,
+    trustedOrigins: [...exactOrigins],
+    dynamicAllowedHosts: [...dynamicAllowedHosts],
+    ...(explicitOrigin && explicitAllowed ? { explicitBaseURL: explicitOrigin.origin } : {}),
+  };
+}
