@@ -103,6 +103,8 @@ test("unsafe explicit origins are not trusted", () => {
     "https://auth.example.test/path",
     "https://auth.example.test?next=/",
     "https://auth.example.test#fragment",
+    "https://auth.example.test:444",
+    "https://*.vercel.app",
   ]) {
     const policy = resolveAuthOriginPolicy({
       NODE_ENV: "production",
@@ -125,5 +127,7 @@ test("platform host normalization rejects paths, credentials, and non-HTTPS URLs
   assert.equal(normalizeAuthPlatformHost("http://mvm3d.vercel.app"), null);
   assert.equal(normalizeAuthPlatformHost("https://user@example.test"), null);
   assert.equal(normalizeAuthPlatformHost("mvm3d.vercel.app/unsafe"), null);
+  assert.equal(normalizeAuthPlatformHost("https://*.vercel.app"), null);
+  assert.equal(normalizeAuthPlatformHost("https://mvm3d.vercel.app:444"), null);
   assert.equal(normalizeAuthPlatformHost(""), null);
 });
