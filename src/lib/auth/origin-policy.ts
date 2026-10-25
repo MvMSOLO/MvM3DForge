@@ -143,7 +143,7 @@ function originHost(origin: string): string | undefined {
 export function resolveAuthOriginPolicy(input: AuthOriginPolicyInput): AuthOriginPolicy {
   const nodeEnv = clean(input.nodeEnv)?.toLowerCase();
   const vercelEnvironment = clean(input.vercelEnvironment)?.toLowerCase();
-  const isVercelPreview = vercelEnvironment === "preview";
+  const isVercelPreview = vercelEnvironment === "preview" && nodeEnv !== "development";
   // A Grok workspace preview has no Vercel environment markers and no deployed
   // project id. Give it its documented sandbox host only; never on Vercel.
   const isWorkspacePreview = nodeEnv !== "production" && !vercelEnvironment && !clean(input.grokProjectId);
