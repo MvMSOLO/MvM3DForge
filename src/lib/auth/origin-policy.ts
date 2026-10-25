@@ -4,6 +4,12 @@
  * deployment hosts; Preview trusts only its own branch/deployment hosts.
  */
 export const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3d.vercel.app";
+/** Exact production aliases listed by the audited Vercel mvm3d project. */
+export const VERIFIED_PROJECT_PRODUCTION_ORIGINS = [
+  CANONICAL_PRODUCTION_ORIGIN,
+  "https://mvm3d-mvmsolos-projects.vercel.app",
+  "https://mvm3d-git-main-mvmsolos-projects.vercel.app",
+] as const;
 export const LIVE_PREVIEW_HOST_PATTERN = "*.grok-sandbox.com";
 
 export const LOCAL_DEV_ORIGINS = [
@@ -125,7 +131,7 @@ export function resolveAuthOriginPolicy(input: AuthOriginPolicyInput): AuthOrigi
 
   const trusted = new Set<string>();
   if (isProduction) {
-    trusted.add(CANONICAL_PRODUCTION_ORIGIN);
+    for (const origin of VERIFIED_PROJECT_PRODUCTION_ORIGINS) trusted.add(origin);
     add(trusted, projectProductionOrigin);
     add(trusted, deploymentOrigin);
     // BETTER_AUTH_URL is configuration, not proof of domain ownership. Only
