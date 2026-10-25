@@ -43,6 +43,23 @@ The Vercel project was inspected without decrypting secrets:
 - Each file's SQL and its `_migrations` ledger record are committed in the same transaction. A transaction-scoped advisory lock and a second ledger check protect concurrent deployments, and transient connection/serialization errors can retry the complete pass. The runner never drops or resets existing tables.
 - The CI migration regression starts a fresh, disposable PostgreSQL service, runs the actual migrator twice, verifies auth/project/MCP tables and ledger entries, and checks that a sentinel project row survives the rerun. It does not connect to the Production database.
 
+## Runtime database readiness (Task 6)
+
+The server-only `inspectDatabaseReadiness()` probe runs before Better Auth and remote MCP handlers. It performs a lightweight `SELECT 1` connectivity query and verifies the required migration ledger, auth, project, API-key, execution-job, and OAuth tables. In Production, a missing/blank `DATABASE_URL` is rejected before the process-local PGLite fallback can be used for requests.
+
+Internal logs contain one of the following stable categories, with repeated identical errors throttled per warm process:
+
+| Internal category | Meaning | Structured log context |
+|---|---|---|
+| `DATABASE_URL_MISSING` | Production runtime has no nonblank `DATABASE_URL`. | Fixed configuration warning; never the variable value. |
+| `DATABASE_UNREACHABLE` | The connection query failed or the driver reported a connection/server error during the schema probe. | Backend name and a sanitized driver error code only. |
+| `DATABASE_SCHEMA_MISSING` | Connection works, but one or more required relations are absent. | Exact source-controlled table names missing from the required schema. |
+| `DATABASE_SCHEMA_CHECK_FAILED` | The database is reachable, but the schema probe itself failed for a non-connection reason (for example, permission denied). | Backend and sanitized driver code only. |
+
+Client-facing auth responses expose only a stable code and safe message. MCP receives a generic sanitized 503/JSON-RPC error. URLs, usernames, passwords, SQL text, exception messages, and stack traces are never serialized into these readiness responses. Fix the issue indicated by server logs; do not bypass the production guard.
+
+The probe verifies current connectivity and schema shape, not whether the database provider has backups, high availability, or correct retention. A green readiness result is not itself proof of account/session end-to-end behavior.
+
 ## Smoke-test interpretation
 
 The credential-free production smoke test checks OAuth discovery, protected-resource metadata, login route availability, safe rejection of an incomplete authorization request, CORS preflight, and the unauthenticated MCP challenge. It does not register a client, submit consent, read/write project data, or prove database credentials by itself. A separate real-user OAuth consent → token exchange → authenticated MCP tool-call remains required before claiming full end-to-end verification.
