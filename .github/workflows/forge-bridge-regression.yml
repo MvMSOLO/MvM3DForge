@@ -34,3 +34,18 @@ jobs:
 
       - name: Lint project
         run: npm run lint
+
+  production-mcp-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check production OAuth discovery and MCP authentication boundary
+        run: node scripts/mcp-production-smoke.mjs
