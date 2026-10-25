@@ -24,12 +24,10 @@ function errorPage(event: H3Event, status: number, message: string) {
 }
 
 function redirectAfterPost(event: H3Event, location: string) {
-  // 303 is explicit Post/Redirect/Get. It prevents embedded OAuth webviews from
-  // replaying the consent POST when following the authorization callback.
-  setHeader(event, "Location", location);
+  // Use H3's response helper so the adapter always emits a real Location header
+  // and ends the form POST with an explicit Post/Redirect/Get response.
   setHeader(event, "Cache-Control", "no-store");
-  setResponseStatus(event, 303);
-  return null;
+  return sendRedirect(event, location, 303);
 }
 
 function safeCallbackDescription(value: string) {
