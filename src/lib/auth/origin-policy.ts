@@ -146,7 +146,7 @@ export function resolveAuthOriginPolicy(input: AuthOriginPolicyInput): AuthOrigi
   const isVercelPreview = vercelEnvironment === "preview";
   // A Grok workspace preview has no Vercel environment markers and no deployed
   // project id. Give it its documented sandbox host only; never on Vercel.
-  const isWorkspacePreview = !vercelEnvironment && !clean(input.grokProjectId);
+  const isWorkspacePreview = nodeEnv !== "production" && !vercelEnvironment && !clean(input.grokProjectId);
   const isProduction = !isVercelPreview && !isWorkspacePreview &&
     (vercelEnvironment === "production" || nodeEnv === "production");
 
