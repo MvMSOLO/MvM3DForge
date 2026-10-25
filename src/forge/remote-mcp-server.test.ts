@@ -109,9 +109,11 @@ describe("Remote MCP server end-to-end tool registry", () => {
       const visualTool = result.tools.find((tool) => tool.name === "get_execution_job") as any;
       assert.equal(visualTool?._meta?.ui?.resourceUri, "ui://mvm3d/viewport.html");
       const appResource = await session.client.readResource({ uri: "ui://mvm3d/viewport.html" });
-      assert.equal(appResource.contents[0]?.mimeType, "text/html;profile=mcp-app");
-      assert.match(appResource.contents[0]?.text ?? "", /MVM 3D/);
-      assert.ok((appResource.contents[0]?.text ?? "").includes("ui/notifications/tool-result"));
+      const appResourceContent = appResource.contents[0] as { mimeType?: string; text?: string; blob?: string } | undefined;
+      assert.equal(appResourceContent?.mimeType, "text/html;profile=mcp-app");
+      const appHtml = appResourceContent?.text ?? "";
+      assert.match(appHtml, /MVM3D AI Viewport/);
+      assert.ok(appHtml.includes("ui/notifications/tool-result"));
     } finally {
       await session.close();
     }
@@ -140,8 +142,8 @@ describe("Remote MCP server end-to-end tool registry", () => {
       const imageResult = await session.client.callTool({
         name: "get_reference_image",
         arguments: { projectId: created.projectId },
-      });
-      const image = imageResult.content.find((item: any) => item.type === "image") as any;
+      }) as { content?: Array<{ type: string; mimeType?: string; data?: string }> };
+      const image = imageResult.content?.find((item) => item.type === "image");
       assert.ok(image, "expected an MCP image content block");
       assert.equal(image.mimeType, "image/png");
       assert.equal(image.data, "aGVsbG8=");

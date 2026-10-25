@@ -796,7 +796,7 @@ function Studio() {
         id: crypto.randomUUID(),
         name: ("Image Reference · " + file.name.replace(/\\.[^/.]+$/, "")).slice(0, 120),
         type: "mesh",
-        source: "user",
+        source: "import",
         position: [0, 1, 0],
         rotation: [0, 0, 0],
         scale: [1, 1, 1],
