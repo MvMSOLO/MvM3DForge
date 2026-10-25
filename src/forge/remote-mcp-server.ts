@@ -273,11 +273,11 @@ export function createPersistedMcpServer(
       if (!asset?.dataUrl) {
         throw new Error("No saved image reference was found. In Studio, use Import Image first, then call this tool again.");
       }
-      const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=\\r\\n]+)$/.exec(asset.dataUrl);
+      const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=\r\n]+)$/.exec(asset.dataUrl);
       if (!match) {
         throw new Error("This reference is not a supported PNG, JPEG, or WebP image. Re-import it as PNG/JPEG/WebP.");
       }
-      const data = match[2].replace(/\\s+/g, "");
+      const data = match[2].replace(/\s+/g, "");
       if (data.length > 2_900_000) {
         throw new Error("Reference image is too large to safely return to the AI client. Re-import an image under 2 MB.");
       }
