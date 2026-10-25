@@ -12,6 +12,7 @@ import {
   readFormBody,
   requestHeaders,
 } from "../../utils/mcp-oauth.ts";
+import { inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 
 function errorPage(event: H3Event, status: number, message: string) {
   setResponseStatus(event, status);
@@ -77,6 +78,9 @@ export default defineEventHandler(async (event) => {
     console.warn("[mcp-oauth] consent rejected: origin mismatch", { originHost });
     return errorPage(event, 403, "This connection came from an untrusted origin. Restart Connect from the official MVM3D address.");
   }
+
+  const readiness = await inspectDatabaseReadiness();
+  if (!readiness.ok) return errorPage(event, 503, readiness.publicMessage);
 
   let body: Record<string, string>;
   try {
