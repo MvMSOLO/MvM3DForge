@@ -65,7 +65,14 @@ export async function getSessionUser(
     headers = new Headers(request.headers);
     headers.set("Authorization", `Bearer ${bearerToken}`);
   }
-  const session = await auth.api.getSession({ headers });
+  // Private server authorization must consult PostgreSQL, not a short-lived
+  // signed session_data cookie: otherwise a revoked session can remain usable
+  // until the cookie cache expires. Browser-facing session reads may still use
+  // Better Auth's cache for performance; authorization decisions may not.
+  const session = await auth.api.getSession({
+    headers,
+    query: { disableCookieCache: true },
+  });
   if (!session?.user) return null;
   return { id: session.user.id, email: session.user.email ?? null };
 }

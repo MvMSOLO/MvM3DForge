@@ -389,8 +389,87 @@ try {
     "wrong password must not create a database session.",
   );
 
+  // A browser-style page reload/navigation must resolve the same persisted session.
+  const reloadSessionResponse = await fetch(baseUrl + "/api/auth/get-session", {
+    headers: { Cookie: signInCookie, Origin: baseUrl },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const reloadSessionBody = await readJson(reloadSessionResponse);
+  assert.equal(reloadSessionResponse.status, 200, "session must be readable after a fresh request");
+  assert.equal(reloadSessionBody?.user?.id, userId, "session must survive a separate request");
+  assert.equal(
+    reloadSessionBody?.session?.id,
+    signInSessionBody?.session?.id,
+    "separate requests must resolve the same persistent session",
+  );
+  const signInSessionId = signInSessionBody?.session?.id;
+  assert.equal(typeof signInSessionId, "string", "sign-in response must identify its persisted session");
+
+  const persistedSignInSession = await verificationPool.query(
+    'SELECT "id", "userId" FROM public."session" WHERE "id" = $1 AND "userId" = $2',
+    [signInSessionId, userId],
+  );
+  assert.equal(persistedSignInSession.rowCount, 1, "the active sign-in session must exist in PostgreSQL");
+
+  // A real server sign-out must delete this exact session and expire the cookies.
+  const signOutResponse = await fetch(baseUrl + "/api/auth/sign-out", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Origin: baseUrl,
+      Referer: baseUrl + "/login",
+      Cookie: signInCookie,
+    },
+    body: JSON.stringify({}),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const signOutBody = await readJson(signOutResponse);
+  assert.equal(
+    signOutResponse.status,
+    200,
+    "sign-out must complete successfully (got HTTP " + signOutResponse.status + ").\n" +
+      sanitizedLogs(logs.value),
+  );
+  assert.equal(signOutBody?.success, true, "Better Auth must confirm sign-out success");
+  const clearedCookieHeaders = typeof signOutResponse.headers.getSetCookie === "function"
+    ? signOutResponse.headers.getSetCookie()
+    : [signOutResponse.headers.get("set-cookie")].filter(Boolean);
+  assert.ok(
+    clearedCookieHeaders.some((cookie) => cookie.startsWith("__Host-grok-auth.session_token=")),
+    "sign-out must emit a clearing Set-Cookie for the session token",
+  );
+  assert.ok(
+    clearedCookieHeaders.some((cookie) => cookie.startsWith("__Host-grok-auth.session_data=")),
+    "sign-out must emit a clearing Set-Cookie for the cached session data",
+  );
+
+  const deletedSignInSession = await verificationPool.query(
+    'SELECT "id" FROM public."session" WHERE "id" = $1',
+    [signInSessionId],
+  );
+  assert.equal(deletedSignInSession.rowCount, 0, "sign-out must revoke the persisted session row");
+
+  // Cookie cache can intentionally serve a short-lived cached session. The
+  // authoritative lookup used by private server routes must bypass that cache
+  // and reject the revoked session even if an old cookie is replayed.
+  const replayResponse = await fetch(baseUrl + "/api/auth/get-session?disableCookieCache=true", {
+    headers: { Cookie: signInCookie, Origin: baseUrl },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const replayBody = await readJson(replayResponse);
+  assert.equal(replayResponse.status, 200, "an invalidated session lookup must return a safe response");
+  assert.equal(replayBody, null, "a revoked session must not resolve when the old cookie is replayed");
+
+  const anonymousAfterSignOut = await fetch(baseUrl + "/api/auth/get-session?disableCookieCache=true", {
+    headers: { Origin: baseUrl },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const anonymousBody = await readJson(anonymousAfterSignOut);
+  assert.equal(anonymousAfterSignOut.status, 200);
+  assert.equal(anonymousBody, null, "a fresh request without cookies must remain signed out");
+
   console.log(
-    "[auth-smoke] PASS: real signup, non-plaintext credential, valid sign-in, persisted sign-in session, separate session reads, duplicate signup rejection, and safe wrong-password failure.",
+    "[auth-smoke] PASS: signup, valid/invalid credentials, persisted sessions across separate requests, sign-out cookie clearing, database revocation, and rejection of a replayed stale session.",
   );
 } catch (error) {
   const message = error instanceof Error ? error.message : "Auth integration test failed.";

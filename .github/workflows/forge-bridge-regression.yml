@@ -35,6 +35,9 @@ jobs:
       - name: Lint project
         run: npm run lint
 
+      - name: Run sign-out sequence unit tests
+        run: node --test scripts/sign-out-plan.test.mjs
+
 
   migration-regression:
     runs-on: ubuntu-latest
