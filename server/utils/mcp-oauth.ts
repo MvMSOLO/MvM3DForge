@@ -89,12 +89,45 @@ export function requestHeaders(event: H3Event): Headers {
 export function isSameOriginConsentRequest(event: H3Event): boolean {
   const headers = requestHeaders(event);
   const origin = headers.get("origin");
+  // Browsers normally send Origin for a form POST. When it is absent (some
+  // embedded clients omit it), retain the existing fallback; session + one-time
+  // PKCE values are still validated by the consent handler.
   if (!origin) return true;
+
   try {
     const parsed = new URL(origin);
-    const host = (headers.get("host") || "").toLowerCase().split(":")[0];
-    return parsed.protocol === "https:" && parsed.hostname.toLowerCase() === host &&
-      parsed.username === "" && parsed.password === "";
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password ||
+        parsed.pathname !== "/" || parsed.search || parsed.hash) return false;
+
+    // Vercel can expose the public alias in x-forwarded-host while the adapter's
+    // Host header contains the deployment hostname. Comparing only Host caused
+    // legitimate same-origin consent POSTs to be rejected on some deployments.
+    const asOrigin = (value: string | null | undefined): string | null => {
+      const candidate = value?.split(",")[0]?.trim();
+      if (!candidate) return null;
+      try {
+        const normalized = new URL(candidate.includes("://") ? candidate : `https://${candidate}`);
+        if (normalized.protocol !== "https:" || normalized.username || normalized.password ||
+            normalized.pathname !== "/" || normalized.search || normalized.hash) return null;
+        return normalized.origin.toLowerCase();
+      } catch {
+        return null;
+      }
+    };
+
+    const allowedOrigins = new Set<string>();
+    for (const candidate of [
+      headers.get("x-forwarded-host"),
+      headers.get("host"),
+      process.env.VERCEL_URL,
+      process.env.VERCEL_BRANCH_URL,
+      process.env.VERCEL_PROJECT_PRODUCTION_URL,
+      mcpPublicBaseUrl(),
+    ]) {
+      const normalized = asOrigin(candidate);
+      if (normalized) allowedOrigins.add(normalized);
+    }
+    return allowedOrigins.has(parsed.origin.toLowerCase());
   } catch {
     return false;
   }
