@@ -30,7 +30,7 @@ jobs:
         run: npm run typecheck
 
       - name: Run MCP, auth and scene regression tests
-        run: node --experimental-strip-types --test src/lib/auth/mcp-auth-policy.test.ts src/lib/auth/deployment-readiness.test.ts src/lib/database-readiness.test.ts src/lib/mcp/oauth-config.test.ts src/lib/mcp/api-keys.test.ts src/forge/sdk/execute.test.ts src/forge/ai-mcp.test.ts src/forge/export-glb.test.ts src/forge/remote-mcp-server.test.ts
+        run: node --experimental-strip-types --test src/lib/auth/mcp-auth-policy.test.ts src/lib/auth/deployment-readiness.test.ts src/lib/database-readiness.test.ts src/lib/auth/email-password-flow.test.ts src/lib/mcp/oauth-config.test.ts src/lib/mcp/api-keys.test.ts src/forge/sdk/execute.test.ts src/forge/ai-mcp.test.ts src/forge/export-glb.test.ts src/forge/remote-mcp-server.test.ts
 
       - name: Lint project
         run: npm run lint
@@ -73,6 +73,14 @@ jobs:
 
       - name: Run migration inventory and retry-policy unit tests
         run: node --test scripts/migration-plan.test.mjs
+
+      - name: Create isolated account-auth test database
+        run: psql postgresql://postgres:postgres@localhost:5432/postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE mvm3_auth_test;"
+
+      - name: Verify real signup and persisted account/session on PostgreSQL
+        env:
+          AUTH_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mvm3_auth_test
+        run: node scripts/auth-postgres-smoke.mjs
 
   production-mcp-smoke:
     runs-on: ubuntu-latest
