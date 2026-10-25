@@ -106,7 +106,7 @@ function spawnVite(testUrl) {
   const logs = { value: "" };
   const server = spawn(
     process.execPath,
-    ["scripts/with-app-env.mjs", "vite", "dev", "--host", "127.0.0.1", "--port", "8080"],
+    [join(root, "node_modules", "vite", "bin", "vite.js"), "dev", "--host", "127.0.0.1", "--port", "8080"],
     {
       cwd: root,
       env: {
