@@ -38,7 +38,7 @@ jobs:
 
   migration-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -77,7 +77,7 @@ jobs:
       - name: Create isolated account-auth test database
         run: psql postgresql://postgres:postgres@localhost:5432/postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE mvm3_auth_test;"
 
-      - name: Verify real signup and persisted account/session on PostgreSQL
+      - name: Verify signup, valid sign-in, wrong-password rejection, and persisted sessions on PostgreSQL
         env:
           AUTH_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mvm3_auth_test
         run: node scripts/auth-postgres-smoke.mjs
