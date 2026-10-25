@@ -106,6 +106,12 @@ describe("Remote MCP server end-to-end tool registry", () => {
         "run_script",
         "update_object",
       ]);
+      const visualTool = result.tools.find((tool) => tool.name === "get_execution_job") as any;
+      assert.equal(visualTool?._meta?.ui?.resourceUri, "ui://mvm3d/viewport.html");
+      const appResource = await session.client.readResource({ uri: "ui://mvm3d/viewport.html" });
+      assert.equal(appResource.contents[0]?.mimeType, "text/html;profile=mcp-app");
+      assert.match(appResource.contents[0]?.text ?? "", /MVM 3D/);
+      assert.match(appResource.contents[0]?.text ?? "", /ui\\/notifications\\/tool-result/);
     } finally {
       await session.close();
     }
