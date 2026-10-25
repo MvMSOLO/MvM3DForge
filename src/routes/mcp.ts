@@ -7,7 +7,7 @@ import { mcpPublicBaseUrl } from "@/lib/mcp/oauth-config.ts";
 import { databaseReadinessResponse, inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 import {
   isAllowedMcpHost,
-  isAllowedMcpOrigin,
+  isAllowedMcpRequestOrigin,
   resolveMcpRequestHost,
 } from "@/lib/mcp/origin-policy";
 function requestHost(request: Request): string | null {
@@ -23,7 +23,12 @@ function hostAllowed(request: Request): boolean {
 }
 
 function originAllowed(request: Request): boolean {
-  return isAllowedMcpOrigin(request.headers.get("origin"), process.env);
+  return isAllowedMcpRequestOrigin({
+    origin: request.headers.get("origin"),
+    forwardedHost: request.headers.get("x-forwarded-host"),
+    host: request.headers.get("host") || new URL(request.url).host,
+    forwardedProto: request.headers.get("x-forwarded-proto"),
+  }, process.env);
 }
 
 function corsHeaders(request?: Request): Headers {
@@ -65,7 +70,6 @@ function withCors(response: Response, request?: Request): Response {
 }
 
 async function handleMcp(request: Request): Promise<Response> {
-  const origin = request.headers.get("origin");
   if (!hostAllowed(request) || !originAllowed(request)) {
     return withCors(Response.json({ error: "Origin or host is not allowed." }, { status: 403 }), request);
   }
