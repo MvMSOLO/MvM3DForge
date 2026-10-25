@@ -11,11 +11,7 @@ import {
   registerMcpOAuthClient,
 } from "@/lib/mcp/oauth.server";
 import type { McpOAuthScope } from "@/lib/mcp/oauth.server";
-import {
-  isAllowedMcpHost,
-  isAllowedMcpOrigin,
-  resolveMcpRequestHost,
-} from "@/lib/mcp/origin-policy";
+import { isAllowedSameOriginConsentPost } from "@/lib/mcp/origin-policy";
 import {
   MCP_OAUTH_SCOPES,
   isSafeOAuthRedirectUri,
@@ -93,64 +89,13 @@ export function requestHeaders(event: H3Event): Headers {
 
 export function isSameOriginConsentRequest(event: H3Event): boolean {
   const headers = requestHeaders(event);
-  const originHeader = headers.get("origin");
-  const refererHeader = headers.get("referer");
-
-  // Cookie-bearing consent requests must carry a verifiable same-origin source.
-  // Some embedded clients omit Origin; in that case a strict same-origin Referer
-  // is the only fallback. Missing both and Origin:null fail closed.
-  let sourceOrigin: string;
-  if (originHeader) {
-    try {
-      const parsed = new URL(originHeader);
-      if (
-        parsed.username ||
-        parsed.password ||
-        parsed.pathname !== "/" ||
-        parsed.search ||
-        parsed.hash ||
-        (parsed.protocol !== "https:" &&
-          !(process.env.NODE_ENV !== "production" &&
-            ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname.toLowerCase()) &&
-            parsed.protocol === "http:"))
-      ) return false;
-      sourceOrigin = parsed.origin.toLowerCase();
-    } catch {
-      return false;
-    }
-  } else if (refererHeader) {
-    try {
-      const referer = new URL(refererHeader);
-      if (referer.username || referer.password || referer.hash) return false;
-      if (referer.protocol !== "https:" &&
-          !(process.env.NODE_ENV !== "production" &&
-            ["localhost", "127.0.0.1", "[::1]"].includes(referer.hostname.toLowerCase()) &&
-            referer.protocol === "http:")) return false;
-      sourceOrigin = referer.origin.toLowerCase();
-    } catch {
-      return false;
-    }
-  } else {
-    return false;
-  }
-
-  if (!isAllowedMcpOrigin(sourceOrigin, process.env)) return false;
-  const requestHost = resolveMcpRequestHost(
-    headers.get("x-forwarded-host"),
-    headers.get("host"),
-  );
-  if (!requestHost || !isAllowedMcpHost(requestHost, process.env)) return false;
-
-  const forwardedProto = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim().toLowerCase();
-  if (forwardedProto && forwardedProto !== "https" && forwardedProto !== "http") return false;
-  const local = /^(localhost|127\\.0\\.0\\.1|\\[::1\\])(?::\\d+)?$/i.test(requestHost);
-  const requestProtocol = forwardedProto || (local ? "http" : "https");
-  try {
-    return new URL(sourceOrigin).origin.toLowerCase() ===
-      new URL(requestProtocol + "://" + requestHost).origin.toLowerCase();
-  } catch {
-    return false;
-  }
+  return isAllowedSameOriginConsentPost({
+    origin: headers.get("origin"),
+    referer: headers.get("referer"),
+    forwardedHost: headers.get("x-forwarded-host"),
+    host: headers.get("host"),
+    forwardedProto: headers.get("x-forwarded-proto"),
+  }, process.env);
 }
 
 export async function getMcpOAuthSession(event: H3Event): Promise<{ id: string; name: string } | null> {
