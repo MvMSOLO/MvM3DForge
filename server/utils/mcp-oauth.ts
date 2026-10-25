@@ -12,6 +12,11 @@ import {
 } from "@/lib/mcp/oauth.server";
 import type { McpOAuthScope } from "@/lib/mcp/oauth.server";
 import {
+  isAllowedMcpHost,
+  isAllowedMcpOrigin,
+  resolveMcpRequestHost,
+} from "@/lib/mcp/origin-policy";
+import {
   MCP_OAUTH_SCOPES,
   isSafeOAuthRedirectUri,
   mcpPublicBaseUrl,
@@ -88,46 +93,61 @@ export function requestHeaders(event: H3Event): Headers {
 
 export function isSameOriginConsentRequest(event: H3Event): boolean {
   const headers = requestHeaders(event);
-  const origin = headers.get("origin");
-  // Browsers normally send Origin for a form POST. When it is absent (some
-  // embedded clients omit it), retain the existing fallback; session + one-time
-  // PKCE values are still validated by the consent handler.
-  if (!origin) return true;
+  const originHeader = headers.get("origin");
+  const refererHeader = headers.get("referer");
 
-  try {
-    const parsed = new URL(origin);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password ||
-        parsed.pathname !== "/" || parsed.search || parsed.hash) return false;
-
-    // Vercel can expose the public alias in x-forwarded-host while the adapter's
-    // Host header contains the deployment hostname. Comparing only Host caused
-    // legitimate same-origin consent POSTs to be rejected on some deployments.
-    const asOrigin = (value: string | null | undefined): string | null => {
-      const candidate = value?.split(",")[0]?.trim();
-      if (!candidate) return null;
-      try {
-        const normalized = new URL(candidate.includes("://") ? candidate : `https://${candidate}`);
-        if (normalized.protocol !== "https:" || normalized.username || normalized.password ||
-            normalized.pathname !== "/" || normalized.search || normalized.hash) return null;
-        return normalized.origin.toLowerCase();
-      } catch {
-        return null;
-      }
-    };
-
-    const allowedOrigins = new Set<string>();
-    for (const candidate of [
-      headers.get("x-forwarded-host"),
-      headers.get("host"),
-      process.env.VERCEL_URL,
-      process.env.VERCEL_BRANCH_URL,
-      process.env.VERCEL_PROJECT_PRODUCTION_URL,
-      mcpPublicBaseUrl(),
-    ]) {
-      const normalized = asOrigin(candidate);
-      if (normalized) allowedOrigins.add(normalized);
+  // Cookie-bearing consent requests must carry a verifiable same-origin source.
+  // Some embedded clients omit Origin; in that case a strict same-origin Referer
+  // is the only fallback. Missing both and Origin:null fail closed.
+  let sourceOrigin: string;
+  if (originHeader) {
+    try {
+      const parsed = new URL(originHeader);
+      if (
+        parsed.username ||
+        parsed.password ||
+        parsed.pathname !== "/" ||
+        parsed.search ||
+        parsed.hash ||
+        (parsed.protocol !== "https:" &&
+          !(process.env.NODE_ENV !== "production" &&
+            ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname.toLowerCase()) &&
+            parsed.protocol === "http:"))
+      ) return false;
+      sourceOrigin = parsed.origin.toLowerCase();
+    } catch {
+      return false;
     }
-    return allowedOrigins.has(parsed.origin.toLowerCase());
+  } else if (refererHeader) {
+    try {
+      const referer = new URL(refererHeader);
+      if (referer.username || referer.password || referer.hash) return false;
+      if (referer.protocol !== "https:" &&
+          !(process.env.NODE_ENV !== "production" &&
+            ["localhost", "127.0.0.1", "[::1]"].includes(referer.hostname.toLowerCase()) &&
+            referer.protocol === "http:")) return false;
+      sourceOrigin = referer.origin.toLowerCase();
+    } catch {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  if (!isAllowedMcpOrigin(sourceOrigin, process.env)) return false;
+  const requestHost = resolveMcpRequestHost(
+    headers.get("x-forwarded-host"),
+    headers.get("host"),
+  );
+  if (!requestHost || !isAllowedMcpHost(requestHost, process.env)) return false;
+
+  const forwardedProto = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim().toLowerCase();
+  if (forwardedProto && forwardedProto !== "https" && forwardedProto !== "http") return false;
+  const local = /^(localhost|127\\.0\\.0\\.1|\\[::1\\])(?::\\d+)?$/i.test(requestHost);
+  const requestProtocol = forwardedProto || (local ? "http" : "https");
+  try {
+    return new URL(sourceOrigin).origin.toLowerCase() ===
+      new URL(requestProtocol + "://" + requestHost).origin.toLowerCase();
   } catch {
     return false;
   }
