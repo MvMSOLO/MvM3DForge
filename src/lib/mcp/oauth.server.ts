@@ -20,6 +20,16 @@ export {
 } from "./oauth-config.ts";
 export type { McpOAuthScope };
 
+type OAuthClientMetadata = {
+  client_id: string;
+  client_name: string;
+  redirect_uris: string[];
+  token_endpoint_auth_method: "none";
+  grant_types: string[];
+  response_types: string[];
+  scope: string;
+};
+
 const SCOPE_SET = new Set<string>(MCP_OAUTH_SCOPES);
 const CODE_LIFETIME_MS = 5 * 60 * 1000;
 const ACCESS_TOKEN_SECONDS = 60 * 60;
