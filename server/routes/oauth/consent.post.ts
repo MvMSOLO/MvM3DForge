@@ -24,10 +24,25 @@ function errorPage(event: H3Event, status: number, message: string) {
 }
 
 function redirectAfterPost(event: H3Event, location: string) {
-  // Use H3's response helper so the adapter always emits a real Location header
-  // and ends the form POST with an explicit Post/Redirect/Get response.
+  // Some embedded OAuth webviews submit the consent form successfully but do not
+  // surface the cross-origin 303 navigation. Return a same-origin handoff page:
+  // it visibly confirms the click, navigates in the current window, and leaves a
+  // working link if the embedded browser blocks automatic script navigation.
   setHeader(event, "Cache-Control", "no-store");
-  return sendRedirect(event, location, 303);
+  setHeader(event, "Content-Type", "text/html; charset=utf-8");
+  setHeader(event, "Referrer-Policy", "no-referrer");
+  setHeader(event, "Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+  setResponseStatus(event, 200);
+
+  const safeHref = location.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[character] || character);
+  const jsLocation = JSON.stringify(location)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Returning to AI client · MVM3D</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#070c11;color:#eaf2f8;font:15px/1.5 system-ui,sans-serif;padding:20px;box-sizing:border-box}main{width:min(100%,480px);padding:28px;border:1px solid #293744;border-radius:20px;background:#101923;box-shadow:0 24px 90px #0008}h1{font-size:24px;margin:0 0 10px}p{color:#a4b4c3}a{display:block;margin-top:20px;padding:13px 16px;border-radius:10px;background:#83f0ce;color:#071511;text-align:center;font-weight:750;text-decoration:none}.muted{font-size:12px;color:#7f93a3}</style></head><body><main><h1>Approval received</h1><p>MVM3D is returning you to your AI client to finish the connection.</p><a href="${safeHref}" rel="noreferrer">Continue to AI client</a><p class="muted">If the client does not reopen automatically, use the button above once.</p></main><script>window.location.replace(${jsLocation});</script></body></html>`;
 }
 
 function safeCallbackDescription(value: string) {
