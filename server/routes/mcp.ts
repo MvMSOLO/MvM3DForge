@@ -6,52 +6,34 @@ import { validateMcpRequestAuth } from "@/lib/auth/mcp-auth";
 import { mcpPublicBaseUrl } from "@/lib/mcp/oauth-config";
 import { inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 
-const DEFAULT_ORIGIN = mcpPublicBaseUrl();
-const DEFAULT_HOSTS = [
-  "mvm3d.vercel.app",
-  "mvm3d-mvmsolos-projects.vercel.app",
-  "mvm3d-git-main-mvmsolos-projects.vercel.app",
-  "3dmvm.vercel.app",
-  "3dmvm-itechavazbek-5127.vercel.app",
-  "3dmvm-git-main-itechavazbek-5127.vercel.app",
-];
-
-function configuredList(value: string | undefined, fallback: string[]): string[] {
-  const parsed = value?.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean) ?? [];
-  return parsed.length ? parsed : fallback;
-}
+import {
+  isAllowedMcpHost,
+  isAllowedMcpOrigin,
+  resolveMcpRequestHost,
+} from "@/lib/mcp/origin-policy";
 
 function getRequestHost(event: H3Event): string {
-  const host = getHeader(event, "host") || getHeader(event, "x-forwarded-host") || "";
-  return host.toLowerCase().split(":")[0];
+  return resolveMcpRequestHost(
+    getHeader(event, "x-forwarded-host"),
+    getHeader(event, "host"),
+  ) ?? "";
 }
 
 function originAllowed(event: H3Event): boolean {
-  const origin = getHeader(event, "origin");
-  if (!origin) return true;
-  let parsed: URL;
-  try {
-    parsed = new URL(origin);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") return false;
-  const allowed = configuredList(process.env.MCP_ALLOWED_ORIGINS, [DEFAULT_ORIGIN]);
-  return parsed.hostname.toLowerCase() === getRequestHost(event) || allowed.includes(parsed.origin.toLowerCase());
+  return isAllowedMcpOrigin(getHeader(event, "origin"), process.env);
 }
 
 function hostAllowed(event: H3Event): boolean {
-  const host = getRequestHost(event);
-  const allowed = configuredList(process.env.MCP_ALLOWED_HOSTS, DEFAULT_HOSTS);
-  const vercelProjectHost =
-    (host.startsWith("mvm3d-") && host.endsWith("-mvmsolos-projects.vercel.app")) ||
-    (host.startsWith("3dmvm-") && host.endsWith("-itechavazbek-5127.vercel.app"));
-  return Boolean(host) && (allowed.includes(host) || vercelProjectHost);
+  return isAllowedMcpHost(getRequestHost(event), process.env);
 }
 
 function withCors(response: Response, origin?: string | null): Response {
   const headers = new Headers(response.headers);
-  headers.set("Access-Control-Allow-Origin", origin || "*");
+  if (origin === null) {
+    headers.delete("Access-Control-Allow-Origin");
+  } else {
+    headers.set("Access-Control-Allow-Origin", origin === undefined ? "*" : origin);
+  }
   headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-Id, X-API-Key");
   headers.set("Access-Control-Expose-Headers", "Mcp-Session-Id, Mcp-Protocol-Version, WWW-Authenticate");
@@ -92,17 +74,17 @@ export default defineEventHandler(async (event) => {
 
   if (method === "OPTIONS") {
     if (!hostAllowed(event) || !originAllowed(event)) {
-      return jsonRpcError(403, -32003, "Origin or host is not allowed.", origin);
+      return jsonRpcError(403, -32003, "Origin or host is not allowed.", null);
     }
     return withCors(new Response(null, { status: 204 }), origin);
   }
 
+  if (!hostAllowed(event)) return jsonRpcError(403, -32003, "Untrusted Host header.", null);
+  if (!originAllowed(event)) {
+    return jsonRpcError(403, -32003, "Origin is not allowed. Configure MCP_ALLOWED_ORIGINS for trusted browser clients.", null);
+  }
   if (!["GET", "POST", "DELETE"].includes(method)) {
     return jsonRpcError(405, -32000, "Method not allowed.", origin, { Allow: "GET, POST, DELETE, OPTIONS" });
-  }
-  if (!hostAllowed(event)) return jsonRpcError(403, -32003, "Untrusted Host header.", origin);
-  if (!originAllowed(event)) {
-    return jsonRpcError(403, -32003, "Origin is not allowed. Configure MCP_ALLOWED_ORIGINS for trusted browser clients.", origin);
   }
 
   // Check both connectivity and required schema before auth/token reads. The
@@ -127,8 +109,9 @@ export default defineEventHandler(async (event) => {
 
   try {
     const host = getRequestHost(event);
-    const forwardedProto = getHeader(event, "x-forwarded-proto");
-    const protocol = forwardedProto === "http" && (host === "localhost" || host === "127.0.0.1") ? "http" : "https";
+    const forwardedProto = getHeader(event, "x-forwarded-proto")?.split(",", 1)[0]?.trim().toLowerCase();
+    const isLoopbackHost = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(host);
+    const protocol = forwardedProto === "http" && isLoopbackHost ? "http" : "https";
     const url = new URL(event.path || "/mcp", `${protocol}://${host}`);
     const headers = buildRequestHeaders(event);
     let body: BodyInit | undefined;
