@@ -179,7 +179,7 @@ function AISPage() {
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <a href="/studio" className="inline-flex items-center gap-2 rounded-lg bg-[#83f0ce] px-4 py-2.5 text-xs font-bold text-[#071511] no-underline transition hover:bg-[#a1f7dc]"><Play size={13} /> Open Studio</a>
-            <a href="/studio?tab=integrations" className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2.5 text-xs font-semibold text-slate-300 no-underline transition hover:border-white/25"><ArrowDown size={13} /> Cloud projects & MCP keys</a>
+            <a href="/studio" className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2.5 text-xs font-semibold text-slate-300 no-underline transition hover:border-white/25"><ArrowDown size={13} /> Studio · open Workspace → 3D stack</a>
           </div>
         </section>
 
