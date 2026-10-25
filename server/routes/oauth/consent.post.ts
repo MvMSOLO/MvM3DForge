@@ -1,4 +1,4 @@
-import { defineEventHandler, sendRedirect, setHeader, setResponseStatus } from "h3";
+import { defineEventHandler, setHeader, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
 import {
   createMcpOAuthCode,
