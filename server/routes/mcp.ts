@@ -8,7 +8,7 @@ import { inspectDatabaseReadiness } from "@/lib/db-readiness.server";
 
 import {
   isAllowedMcpHost,
-  isAllowedMcpOrigin,
+  isAllowedMcpRequestOrigin,
   resolveMcpRequestHost,
 } from "@/lib/mcp/origin-policy";
 
@@ -20,7 +20,13 @@ function getRequestHost(event: H3Event): string {
 }
 
 function originAllowed(event: H3Event): boolean {
-  return isAllowedMcpOrigin(getHeader(event, "origin"), process.env);
+  const headers = requestHeaders(event);
+  return isAllowedMcpRequestOrigin({
+    origin: headers.get("origin"),
+    forwardedHost: headers.get("x-forwarded-host"),
+    host: headers.get("host"),
+    forwardedProto: headers.get("x-forwarded-proto"),
+  }, process.env);
 }
 
 function hostAllowed(event: H3Event): boolean {
