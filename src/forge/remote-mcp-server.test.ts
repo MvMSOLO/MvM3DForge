@@ -84,8 +84,9 @@ describe("Remote MCP server end-to-end tool registry", () => {
     try {
       const result = await session.client.listTools();
       const names = result.tools.map((tool) => tool.name).sort();
-      assert.equal(names.length, 17);
+      assert.equal(names.length, 19);
       assert.deepEqual(names, [
+        "create_3d_from_image",
         "create_light",
         "create_material",
         "create_primitive",
@@ -96,6 +97,7 @@ describe("Remote MCP server end-to-end tool registry", () => {
         "get_ai_workflow",
         "get_execution_job",
         "get_project",
+        "get_reference_image",
         "inspect_object",
         "list_projects",
         "read_scene",
@@ -104,6 +106,58 @@ describe("Remote MCP server end-to-end tool registry", () => {
         "run_script",
         "update_object",
       ]);
+      const visualTool = result.tools.find((tool) => tool.name === "get_execution_job") as any;
+      assert.equal(visualTool?._meta?.ui?.resourceUri, "ui://mvm3d/viewport.html");
+      const appResource = await session.client.readResource({ uri: "ui://mvm3d/viewport.html" });
+      assert.equal(appResource.contents[0]?.mimeType, "text/html;profile=mcp-app");
+      assert.match(appResource.contents[0]?.text ?? "", /MVM 3D/);
+      assert.ok((appResource.contents[0]?.text ?? "").includes("ui/notifications/tool-result"));
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("returns real image content to a vision-capable MCP client and queues image-to-3D code", async () => {
+    const session = await connectClient();
+    try {
+      const created = textPayload(await session.client.callTool({
+        name: "create_project",
+        arguments: { name: "Image-to-3D Test", starterId: "blank" },
+      }));
+      const project = await session.repository.load("user-a", created.projectId);
+      assert.ok(project);
+      project.textures.push({
+        id: "reference-image-test",
+        name: "Reference Test",
+        source: "user",
+        colorSpace: "srgb",
+        width: 2,
+        height: 2,
+        dataUrl: "data:image/png;base64,aGVsbG8=",
+      });
+      await session.repository.save("user-a", project);
+
+      const imageResult = await session.client.callTool({
+        name: "get_reference_image",
+        arguments: { projectId: created.projectId },
+      });
+      const image = imageResult.content.find((item: any) => item.type === "image") as any;
+      assert.ok(image, "expected an MCP image content block");
+      assert.equal(image.mimeType, "image/png");
+      assert.equal(image.data, "aGVsbG8=");
+
+      const queued = textPayload(await session.client.callTool({
+        name: "create_3d_from_image",
+        arguments: {
+          projectId: created.projectId,
+          imageAnalysis: "A simple red product bottle with a cylindrical body and rounded shoulder.",
+          code: "const bottle = mvm.geometry.cylinder({ radiusTop: 0.28, radiusBottom: 0.32, height: 1.2 }); mvm.scene.add(bottle);",
+          mode: "preview",
+        },
+      }));
+      assert.ok(queued.jobId);
+      assert.equal(queued.needsOpenStudioTab, true);
+      assert.equal(queued.nextTool, "get_execution_job");
     } finally {
       await session.close();
     }
