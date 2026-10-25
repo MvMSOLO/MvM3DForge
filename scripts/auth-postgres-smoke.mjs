@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Real Better Auth account-creation regression against a disposable PostgreSQL.
+ * Real Better Auth email/password signup + sign-in regression against disposable PostgreSQL.
  *
  * The script refuses to touch anything except a fresh local database named
  * mvm3_auth_test. It does not drop/reset tables. It applies repository
- * migrations, boots the actual Vite/TanStack server, performs HTTP signup, and
- * verifies the persisted user, password hash, session cookie, and DB session.
+ * migrations, boots the actual Vite/TanStack server, performs HTTP signup and sign-in,
+ * verifies the password hash and persisted sessions, and rejects wrong credentials.
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
@@ -200,7 +200,7 @@ let verificationPool;
 try {
   await waitForAuthRoute(server, logs);
 
-  const email = "task7-" + randomUUID() + "@example.com";
+  const email = "task8-" + randomUUID() + "@example.com";
   const password = "Mvm3D-" + randomUUID() + "-A9!";
   const name = "MVM3D Account Test";
 
@@ -292,8 +292,105 @@ try {
   );
   assert.equal(count.rows[0].count, 1, "duplicate signup must not create a second user");
 
+  // A valid sign-in must authenticate against the stored credential hash and
+  // issue a fresh persistent session from the real HTTP endpoint.
+  const sessionsBeforeSignIn = await verificationPool.query(
+    'SELECT count(*)::int AS count FROM public."session" WHERE "userId" = $1',
+    [userId],
+  );
+  const signInResponse = await fetch(baseUrl + "/api/auth/sign-in/email", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Origin: baseUrl,
+      Referer: baseUrl + "/login",
+    },
+    body: JSON.stringify({ email, password, callbackURL: "/studio" }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const signInBody = await readJson(signInResponse);
+  assert.equal(
+    signInResponse.status,
+    200,
+    "valid email/password sign-in should return HTTP 200 (got " + signInResponse.status +
+      "; error code: " + (signInBody?.code ?? signInBody?.error ?? "none") + ").\n" +
+      sanitizedLogs(logs.value),
+  );
+  assert.equal(signInBody?.user?.id, userId, "sign-in must authenticate the existing database user");
+  assert.equal(signInBody?.user?.email, email.toLowerCase());
+
+  const signInCookie = cookieHeaderFrom(signInResponse);
+  assert.ok(
+    signInCookie.includes("__Host-grok-auth.session_token="),
+    "valid sign-in must set the app's session cookie.",
+  );
+  const signInSessionResponse = await fetch(baseUrl + "/api/auth/get-session", {
+    headers: { Cookie: signInCookie, Origin: baseUrl },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const signInSessionBody = await readJson(signInSessionResponse);
+  assert.equal(signInSessionResponse.status, 200, "session endpoint must answer after sign-in");
+  assert.equal(signInSessionBody?.user?.id, userId, "sign-in cookie must resolve to the same user");
+
+  const sessionsAfterSignIn = await verificationPool.query(
+    'SELECT count(*)::int AS count FROM public."session" WHERE "userId" = $1',
+    [userId],
+  );
+  assert.ok(
+    sessionsAfterSignIn.rows[0].count > sessionsBeforeSignIn.rows[0].count,
+    "valid sign-in must persist a new session in PostgreSQL.",
+  );
+
+  // A wrong password must fail closed: no session cookie and no new DB session.
+  const sessionsBeforeInvalid = sessionsAfterSignIn.rows[0].count;
+  const invalidResponse = await fetch(baseUrl + "/api/auth/sign-in/email", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Origin: baseUrl,
+      Referer: baseUrl + "/login",
+    },
+    body: JSON.stringify({ email, password: password + "-wrong", callbackURL: "/studio" }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const invalidBody = await readJson(invalidResponse);
+  assert.ok(
+    invalidResponse.status >= 400 && invalidResponse.status < 500,
+    "wrong password must be rejected with a client-auth error (got HTTP " + invalidResponse.status + ").",
+  );
+  const invalidBodyText = JSON.stringify(invalidBody);
+  assert.match(
+    invalidBodyText,
+    /INVALID_EMAIL_OR_PASSWORD|invalid email or password|invalid credentials/i,
+    "wrong-password response must use a generic invalid-credentials result.",
+  );
+  assert.doesNotMatch(
+    invalidBodyText,
+    /postgres(?:ql)?:\\/\\/|relation .* does not exist|syntax error at or near/i,
+    "auth failure must not leak database URLs or SQL details.",
+  );
+  assert.equal(
+    invalidBodyText.includes(password),
+    false,
+    "auth failure must not echo the supplied password.",
+  );
+  assert.equal(
+    cookieHeaderFrom(invalidResponse).includes("__Host-grok-auth.session_token="),
+    false,
+    "wrong password must not set a signed-in session cookie.",
+  );
+  const sessionsAfterInvalid = await verificationPool.query(
+    'SELECT count(*)::int AS count FROM public."session" WHERE "userId" = $1',
+    [userId],
+  );
+  assert.equal(
+    sessionsAfterInvalid.rows[0].count,
+    sessionsBeforeInvalid,
+    "wrong password must not create a database session.",
+  );
+
   console.log(
-    "[auth-smoke] PASS: real email signup, PostgreSQL user + hashed credential + session persistence, session read on a separate request, and duplicate signup rejection.",
+    "[auth-smoke] PASS: real signup, non-plaintext credential, valid sign-in, persisted sign-in session, separate session reads, duplicate signup rejection, and safe wrong-password failure.",
   );
 } catch (error) {
   const message = error instanceof Error ? error.message : "Auth integration test failed.";
