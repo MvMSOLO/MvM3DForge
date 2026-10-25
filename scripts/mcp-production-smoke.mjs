@@ -45,6 +45,17 @@ assert.match(loginResponse.headers.get("content-type") || "", /text\/html/i);
 assert.ok((await loginResponse.text()).length > 500, "Login HTML must not be empty");
 pass("login route availability");
 
+// Credential-free auth readiness check. This must never issue a session cookie
+// or create/update an account; an anonymous visitor must receive an empty session.
+const sessionResponse = await request("/api/auth/get-session", {
+  headers: { accept: "application/json" },
+});
+assert.equal(sessionResponse.status, 200, "Anonymous session lookup must be available");
+const sessionBody = await sessionResponse.json();
+assert.equal(sessionBody, null, "An unauthenticated visitor must not receive a session");
+assert.equal(sessionResponse.headers.has("set-cookie"), false, "Anonymous session lookup must not issue session cookies");
+pass("anonymous session lookup returns null without setting cookies");
+
 const authorizeResponse = await request("/oauth/authorize", {
   headers: { accept: "application/json" },
 });
