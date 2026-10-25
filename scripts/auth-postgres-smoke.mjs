@@ -366,7 +366,7 @@ try {
   );
   assert.doesNotMatch(
     invalidBodyText,
-    /postgres(?:ql)?:\\/\\/|relation .* does not exist|syntax error at or near/i,
+    /postgres(?:ql)?:\/\/|relation .* does not exist|syntax error at or near/i,
     "auth failure must not leak database URLs or SQL details.",
   );
   assert.equal(
