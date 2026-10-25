@@ -179,7 +179,6 @@ export function resolveAuthOriginPolicy(input: AuthOriginPolicyInput): AuthOrigi
     if (isWorkspacePreview) {
       // The sandbox origin is necessary for dynamic live-preview sign-in. Keep
       // it HTTPS-only, and never enable the pattern in a Vercel deployment.
-      trusted.add(LIVE_PREVIEW_HOST_PATTERN);
       trusted.add("https://" + LIVE_PREVIEW_HOST_PATTERN);
     }
   }
