@@ -29,6 +29,15 @@ test("production trusts the canonical MVM3D domain and exact platform-reported h
   assert.equal(policy.allowedHosts.includes("*.grok-sandbox.com"), false);
 });
 
+test("production process without Vercel metadata never enables workspace wildcards", () => {
+  const policy = resolveAuthOriginPolicy({ nodeEnv: "production" });
+  assert.equal(policy.isProduction, true);
+  assert.equal(policy.isWorkspacePreview, false);
+  assert.equal(policy.trustedOrigins.includes("https://*.grok-sandbox.com"), false);
+  assert.equal(policy.allowedHosts.includes("*.grok-sandbox.com"), false);
+  assert.ok(policy.trustedOrigins.includes(CANONICAL_PRODUCTION_ORIGIN));
+});
+
 test("Vercel Preview trusts its own branch/deployment hosts but not production", () => {
   const policy = resolveAuthOriginPolicy({
     nodeEnv: "production",
