@@ -56,6 +56,20 @@ test("Vercel Preview trusts its own branch/deployment hosts but not production",
   assert.equal(policy.trustedOrigins.some((origin) => origin.includes("*")), false);
 });
 
+test("local dev keeps loopback origins even when the PostgreSQL harness sets VERCEL_ENV=preview", () => {
+  const policy = resolveAuthOriginPolicy({
+    nodeEnv: "development",
+    vercelEnvironment: "preview",
+    explicitBaseURL: "http://127.0.0.1:8080",
+  });
+
+  assert.equal(policy.isVercelPreview, false);
+  assert.equal(policy.explicitBaseURL, "http://127.0.0.1:8080");
+  assert.ok(policy.allowedHosts.includes("127.0.0.1:8080"));
+  assert.ok(policy.trustedOrigins.includes("http://127.0.0.1:8080"));
+  assert.equal(policy.trustedOrigins.includes("https://*.grok-sandbox.com"), false);
+});
+
 test("Preview ignores a stale production BETTER_AUTH_URL instead of trusting it", () => {
   const policy = resolveAuthOriginPolicy({
     nodeEnv: "production",
