@@ -206,6 +206,40 @@ export function isAllowedMcpOrigin(
 }
 
 /**
+ * An Origin-bearing MCP request must match the public request host by default.
+ * Cross-origin browser clients are allowed only when an operator has set the
+ * exact MCP_ALLOWED_ORIGINS override. Non-browser transports may omit Origin.
+ */
+export function isAllowedMcpRequestOrigin(input: {
+  origin?: string | null;
+  forwardedHost?: string | null;
+  host?: string | null;
+  forwardedProto?: string | null;
+}, env: McpOriginEnvironment): boolean {
+  if (input.origin === null || input.origin === undefined) return true;
+  if (!isAllowedMcpOrigin(input.origin, env)) return false;
+
+  const mode = runtimeMode(env);
+  const allowLocalHttp = mode === "development";
+  const parsedOrigin = parseOrigin(input.origin, allowLocalHttp);
+  const requestHost = resolveMcpRequestHost(input.forwardedHost, input.host);
+  if (!parsedOrigin || !requestHost || !isAllowedMcpHost(requestHost, env)) return false;
+
+  const forwardedProto = input.forwardedProto?.split(",", 1)[0]?.trim().toLowerCase();
+  if (forwardedProto && forwardedProto !== "https" && forwardedProto !== "http") return false;
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(requestHost);
+  const protocol = forwardedProto || (local ? "http" : "https");
+  const effectiveOrigin = parseOrigin(protocol + "://" + requestHost, allowLocalHttp);
+  if (effectiveOrigin && effectiveOrigin.origin.toLowerCase() === parsedOrigin.origin.toLowerCase()) {
+    return true;
+  }
+
+  // resolveAllowedMcpOrigins treats a non-empty override as the complete exact
+  // cross-origin allow-list, so this exception cannot match inferred hosts.
+  return Boolean(env.MCP_ALLOWED_ORIGINS?.trim());
+}
+
+/**
  * Cookie-bearing OAuth consent is a same-origin browser POST. A trusted MCP
  * browser origin is not sufficient by itself: it must match the public host
  * serving the consent page. If Origin is missing, a strict same-origin Referer
