@@ -256,6 +256,51 @@ export function createPersistedMcpServer(
     projectId: z.string().min(1).optional(),
   }, "project:read", async (args) => ({ project: await getProject(args.projectId) }));
 
+
+  register(
+    "get_reference_image",
+    "Return a saved Studio reference image as standard MCP image content so a vision-capable connected AI can actually inspect the pixels. Call this before reconstructing a 3D object from an image. The Studio stores image references as texture assets; this tool returns one image plus its metadata, not a fake AI analysis.",
+    {
+      projectId: z.string().min(1).optional(),
+      textureId: z.string().min(1).optional(),
+    },
+    "project:read",
+    async (args) => {
+      const project = await getProject(args.projectId);
+      const asset = project.textures.find((texture) =>
+        (!args.textureId || texture.id === args.textureId) && typeof texture.dataUrl === "string",
+      );
+      if (!asset?.dataUrl) {
+        throw new Error("No saved image reference was found. In Studio, use Import Image first, then call this tool again.");
+      }
+      const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=\\r\\n]+)$/.exec(asset.dataUrl);
+      if (!match) {
+        throw new Error("This reference is not a supported PNG, JPEG, or WebP image. Re-import it as PNG/JPEG/WebP.");
+      }
+      const data = match[2].replace(/\\s+/g, "");
+      if (data.length > 2_900_000) {
+        throw new Error("Reference image is too large to safely return to the AI client. Re-import an image under 2 MB.");
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              projectId: project.id,
+              projectName: project.name,
+              textureId: asset.id,
+              imageName: asset.name,
+              width: asset.width,
+              height: asset.height,
+              instruction: "Inspect this image visually. Use its silhouette, proportions, major parts, colors, and visible details to build editable 3D geometry; do not simply place the flat reference plane into the final model.",
+            }, null, 2),
+          },
+          { type: "image", mimeType: "image/" + match[1], data },
+        ],
+      };
+    },
+  );
+
   register("create_project", "Create and persist a new 3D project from a supported starter template.", {
     name: z.string().trim().min(1).max(80).default("New 3D Scene"),
     starterId: z.enum(["blank", "primitives", "pbr", "product", "animated"]).optional(),
@@ -458,6 +503,7 @@ export function createPersistedMcpServer(
       endpoint: "/mcp",
       workflow: [
         "1. Call list_projects, then get_project or read_scene for the target project.",
+        "1a. If a Studio image reference exists, call get_reference_image so the model receives actual MCP image content; use create_3d_from_image to queue a model-authored reconstruction for preview.",
         "2. Call diagnose_project to inspect saved-scene validation issues.",
         "3. Call run_script with mode preview first. This queues work for the project's open Studio browser tab; server-side Node execution is intentionally disabled.",
         "4. Poll get_execution_job with the returned jobId until status is completed or failed.",
@@ -498,6 +544,45 @@ export function createPersistedMcpServer(
           clips: project.clips.length,
         },
         issues,
+      };
+    },
+  );
+
+
+  register(
+    "create_3d_from_image",
+    "Image-to-3D workbench tool. After visually inspecting the user's supplied image or calling get_reference_image, provide a concise visual analysis and complete JavaScript scene code. This queues that code in the project's real Studio browser sandbox. Default to preview, then call get_execution_job until it completes, inspect the returned viewport image, correct issues, and only use apply when the user approves. This tool does not call or pretend to contain a separate image-generation AI model; the connected AI supplies the visual reasoning and code.",
+    {
+      projectId: z.string().min(1),
+      imageAnalysis: z.string().trim().min(1).max(6000),
+      code: z.string().min(1).max(LIMITS.maxCodeChars),
+      mode: z.enum(["preview", "apply"]).default("preview"),
+    },
+    "scene:execute",
+    async (args) => {
+      if (args.mode === "apply") requireScope("scene:write");
+      const project = await repository.load(context.userId, args.projectId);
+      if (!project || project.author !== context.userId) {
+        throw new Error("Project not found or access denied.");
+      }
+      const job = await executionQueue.enqueue({
+        userId: context.userId,
+        projectId: project.id,
+        kind: "script",
+        code: args.code,
+        applyChanges: args.mode === "apply",
+        baseUpdatedAt: project.updatedAt,
+      });
+      return {
+        jobId: job.id,
+        status: job.status,
+        mode: args.mode,
+        projectId: job.projectId,
+        projectRevision: job.baseUpdatedAt,
+        imageAnalysis: args.imageAnalysis,
+        needsOpenStudioTab: true,
+        nextTool: "get_execution_job",
+        instructions: "Keep the exact saved project open in Studio. Poll get_execution_job with this jobId until completed or failed. When completed, inspect the returned MCP image and logs. Iterate with preview if needed; apply changes only after the visual result is acceptable.",
       };
     },
   );
