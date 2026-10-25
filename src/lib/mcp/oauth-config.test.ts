@@ -30,15 +30,26 @@ function withEnv(values: Record<string, string | undefined>, run: () => void) {
   }
 }
 
-test("explicit MCP_PUBLIC_URL takes precedence in every environment", () => {
+test("explicit MCP_PUBLIC_URL is honored in Preview only when it matches that deployment", () => {
   withEnv({
-    MCP_PUBLIC_URL: "https://preview.example.test/",
+    MCP_PUBLIC_URL: "https://mvm3d-git-review.vercel.app/",
     VERCEL_ENV: "preview",
     VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
     VERCEL_BRANCH_URL: "mvm3d-git-review.vercel.app",
   }, () => {
-    assert.equal(mcpPublicBaseUrl(), "https://preview.example.test");
-    assert.equal(mcpResourceUrl(), "https://preview.example.test/mcp");
+    assert.equal(mcpPublicBaseUrl(), "https://mvm3d-git-review.vercel.app");
+    assert.equal(mcpResourceUrl(), "https://mvm3d-git-review.vercel.app/mcp");
+  });
+});
+
+test("Preview fails closed when MCP_PUBLIC_URL is a stale production or foreign alias", () => {
+  withEnv({
+    MCP_PUBLIC_URL: "https://mvm3d.vercel.app",
+    VERCEL_ENV: "preview",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_BRANCH_URL: "mvm3d-git-review.vercel.app",
+  }, () => {
+    assert.throws(() => mcpPublicBaseUrl(), /must match this Vercel preview/i);
   });
 });
 
@@ -96,6 +107,27 @@ test("production fallback uses the stable production project host", () => {
     VERCEL_BRANCH_URL: undefined,
   }, () => {
     assert.equal(mcpPublicBaseUrl(), "https://mvm3d.vercel.app");
+  });
+});
+
+test("production rejects a stale alias from another project", () => {
+  withEnv({
+    MCP_PUBLIC_URL: "https://3dmvm.vercel.app",
+    VERCEL_ENV: "production",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+    VERCEL_URL: "mvm3d-deployment-456.vercel.app",
+  }, () => {
+    assert.throws(() => mcpPublicBaseUrl(), /verified MVM3D production origin/i);
+  });
+});
+
+test("malformed MCP_PUBLIC_URL values with a path are rejected", () => {
+  withEnv({
+    MCP_PUBLIC_URL: "https://mvm3d.vercel.app/oauth",
+    VERCEL_ENV: "production",
+    VERCEL_PROJECT_PRODUCTION_URL: "mvm3d.vercel.app",
+  }, () => {
+    assert.throws(() => mcpPublicBaseUrl(), /verified MVM3D production origin/i);
   });
 });
 
