@@ -374,4 +374,121 @@ describe("Remote MCP server end-to-end tool registry", () => {
       await session.close();
     }
   });
+
+  it("does not treat a wildcard scope as an administrator grant", async () => {
+    const repository = new MemoryProjectRepository();
+    const session = await connectClient("wildcard-user", ["*"], repository);
+    try {
+      const result: any = await session.client.callTool({
+        name: "create_project",
+        arguments: { name: "Must Not Be Created", starterId: "blank" },
+      });
+      assert.equal(result.isError, true);
+      assert.match(
+        result.content.map((item: { type: string; text?: string }) => item.type === "text" ? item.text : "").join(" "),
+        /scene:write/,
+      );
+      assert.deepEqual(await repository.list("wildcard-user"), []);
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("requires the explicit assets:export scope before returning GLB bytes", async () => {
+    const repository = new MemoryProjectRepository();
+    const project = { ...projectShell("Read-only Project"), id: "read-only-export-project", author: "reader" };
+    repository.projects.set(project.id, project);
+    const session = await connectClient("reader", ["project:read"], repository);
+    try {
+      const result: any = await session.client.callTool({
+        name: "export_project_glb",
+        arguments: { projectId: project.id },
+      });
+      assert.equal(result.isError, true);
+      assert.match(
+        result.content.map((item: { type: string; text?: string }) => item.type === "text" ? item.text : "").join(" "),
+        /assets:export/,
+      );
+      assert.equal(result.content.some((item: { type: string }) => item.type === "resource"), false);
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("cannot rename or delete objects from another user's project", async () => {
+    const repository = new MemoryProjectRepository();
+    const foreign = { ...projectShell("Private Bob Scene"), id: "private-bob-write-target", author: "user-b" };
+    const originalName = foreign.name;
+    const originalObjects = structuredClone(foreign.objects);
+    repository.projects.set(foreign.id, foreign);
+    const session = await connectClient("user-a", ["project:read", "scene:write"], repository);
+    try {
+      const rename: any = await session.client.callTool({
+        name: "rename_project",
+        arguments: { projectId: foreign.id, newName: "Overwritten by Alice" },
+      });
+      assert.equal(rename.isError, true);
+
+      const remove: any = await session.client.callTool({
+        name: "delete_object",
+        arguments: { projectId: foreign.id, objectId: "secret-object" },
+      });
+      assert.equal(remove.isError, true);
+
+      const unchanged = repository.projects.get(foreign.id);
+      assert.ok(unchanged);
+      assert.equal(unchanged.name, originalName);
+      assert.deepEqual(unchanged.objects, originalObjects);
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("does not expose another user's execution job or screenshot", async () => {
+    const repository = new MemoryProjectRepository();
+    const queue = new MemoryExecutionQueue();
+    const owner = await connectClient("user-b", undefined, repository, queue);
+    let jobId = "";
+    try {
+      const created = textPayload(await owner.client.callTool({
+        name: "create_project",
+        arguments: { name: "Private Job Project", starterId: "blank" },
+      }));
+      const queued = textPayload(await owner.client.callTool({
+        name: "run_script",
+        arguments: {
+          projectId: created.projectId,
+          mode: "preview",
+          code: 'console.log("private-user-b-job");',
+        },
+      }));
+      jobId = queued.jobId;
+      assert.ok(jobId);
+    } finally {
+      await owner.close();
+    }
+
+    const otherUser = await connectClient("user-a", ["scene:execute"], repository, queue);
+    try {
+      const result: any = await otherUser.client.callTool({
+        name: "get_execution_job",
+        arguments: { jobId },
+      });
+      assert.equal(result.isError, true);
+      const payload = result.content.map((item: { type: string; text?: string }) => item.type === "text" ? item.text : "").join(" ");
+      assert.match(payload, /not found or access denied/i);
+      assert.doesNotMatch(payload, /private-user-b-job/);
+      assert.equal(result.content.some((item: { type: string }) => item.type === "image"), false);
+    } finally {
+      await otherUser.close();
+    }
+  });
+
+  it("requires a verified non-empty identity before creating a persisted MCP server", () => {
+    assert.throws(
+      () => createPersistedMcpServer({ userId: "", scopes: ["project:read"] }),
+      /verified user identity is required/,
+    );
+  });
+
 });
