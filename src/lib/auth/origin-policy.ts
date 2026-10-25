@@ -15,6 +15,8 @@ export type AuthOriginPolicy = {
   mode: "production" | "preview" | "development";
 };
 
+export const CANONICAL_PRODUCTION_ORIGIN = "https://mvm3d.vercel.app";
+
 export const VERIFIED_PRODUCTION_ORIGINS = [
   CANONICAL_PRODUCTION_ORIGIN,
   "https://mvm3d-mvmsolos-projects.vercel.app",
