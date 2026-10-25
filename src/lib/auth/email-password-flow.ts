@@ -78,12 +78,8 @@ export function emailPasswordErrorMessage(
   ) {
     return "An account with this email already exists. Sign in instead.";
   }
-  if (
-    code.includes("INVALID_EMAIL") ||
-    normalizedMessage.includes("invalid email")
-  ) {
-    return "Enter a valid email address.";
-  }
+  // Check credential errors first: INVALID_EMAIL_OR_PASSWORD also contains
+  // the substring INVALID_EMAIL, but it must not be presented as bad syntax.
   if (
     code.includes("INVALID_EMAIL_OR_PASSWORD") ||
     normalizedMessage.includes("invalid email or password") ||
@@ -91,6 +87,12 @@ export function emailPasswordErrorMessage(
     normalizedMessage.includes("incorrect password")
   ) {
     return "Email or password is incorrect.";
+  }
+  if (
+    (code.includes("INVALID_EMAIL") && !code.includes("INVALID_EMAIL_OR_PASSWORD")) ||
+    normalizedMessage.includes("invalid email")
+  ) {
+    return "Enter a valid email address.";
   }
   if (status >= 500) {
     return "The authentication service is temporarily unavailable. Please try again shortly.";
