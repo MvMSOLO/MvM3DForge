@@ -6,3 +6,4 @@ node_modules/
 .vercel/
 *.log
 verify_studio.py
+!.env.example
