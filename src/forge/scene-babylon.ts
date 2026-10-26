@@ -53,6 +53,7 @@ export type BabylonMaterialState = {
   opacity: number;
   emissive: string;
   emissiveIntensity: number;
+  normalScale: number;
   clearcoat: number;
   clearcoatRoughness: number;
   transmission: number;
@@ -77,6 +78,7 @@ export function toBabylonMaterialState(
     opacity: spec.opacity,
     emissive: shaded ? spec.emissive : "#000000",
     emissiveIntensity: shaded ? spec.emissiveIntensity : 0,
+    normalScale: shaded ? (spec.normalScale ?? 1) : 0,
     clearcoat: shaded ? (spec.clearcoat ?? 0) : 0,
     clearcoatRoughness: shaded ? (spec.clearcoatRoughness ?? 0) : 0,
     transmission: shaded ? (spec.transmission ?? 0) : 0,
@@ -119,15 +121,30 @@ function vector3(values: readonly number[]): Vector3 {
   return new Vector3(values[0] ?? 0, values[1] ?? 0, values[2] ?? 0);
 }
 
+function createViewportCanvas(): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.setAttribute("aria-label", "MVM BABYLON 3D viewport");
+  canvas.style.display = "block";
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
+  canvas.style.outline = "none";
+  canvas.style.touchAction = "none";
+  return canvas;
+}
+
 async function createEngine(
-  canvas: HTMLCanvasElement,
-): Promise<{ engine: Engine | WebGPUEngine; backend: "WebGPU" | "WebGL" }> {
+  host: HTMLElement,
+  initialCanvas: HTMLCanvasElement,
+): Promise<{ engine: Engine | WebGPUEngine; backend: "WebGPU" | "WebGL"; canvas: HTMLCanvasElement }> {
+  let canvas = initialCanvas;
+  let attemptedWebGPU = false;
   try {
     if (await WebGPUEngine.IsSupportedAsync) {
+      attemptedWebGPU = true;
       const gpu = new WebGPUEngine(canvas, { antialias: true, adaptToDeviceRatio: true });
       try {
         await gpu.initAsync();
-        return { engine: gpu, backend: "WebGPU" };
+        return { engine: gpu, backend: "WebGPU", canvas };
       } catch {
         gpu.dispose();
       }
@@ -135,9 +152,16 @@ async function createEngine(
   } catch {
     // Browser or adapter does not expose a usable WebGPU device. WebGL2 is the real fallback.
   }
+  if (attemptedWebGPU) {
+    // A failed WebGPU init may already have claimed the original canvas context.
+    // Use a fresh canvas before asking the browser for a WebGL2 context.
+    canvas = createViewportCanvas();
+    host.replaceChildren(canvas);
+  }
   return {
     engine: new Engine(canvas, true, { powerPreference: "high-performance" }, true),
     backend: "WebGL",
+    canvas,
   };
 }
 
@@ -276,6 +300,7 @@ async function createMaterial(
           break;
         case "normal":
           material.bumpTexture = texture;
+          material.bumpTexture.level = state.normalScale;
           material.invertNormalMapX = false;
           material.invertNormalMapY = false;
           break;
@@ -625,16 +650,11 @@ export async function mountBabylonViewport(
   project: Project,
   options: BabylonViewportOptions,
 ): Promise<BabylonViewportHandle> {
-  const canvas = document.createElement("canvas");
-  canvas.setAttribute("aria-label", "MVM BABYLON 3D viewport");
-  canvas.style.display = "block";
-  canvas.style.width = "100%";
-  canvas.style.height = "100%";
-  canvas.style.outline = "none";
-  canvas.style.touchAction = "none";
+  let canvas = createViewportCanvas();
   host.replaceChildren(canvas);
 
-  const { engine, backend } = await createEngine(canvas);
+  const { engine, backend, canvas: initializedCanvas } = await createEngine(host, canvas);
+  canvas = initializedCanvas;
   options.onBackend?.(backend);
   engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 1.5));
 
