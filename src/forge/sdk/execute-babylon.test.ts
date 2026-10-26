@@ -93,7 +93,7 @@ test("native Babylon exporter returns a real binary GLB container", async () => 
   try {
     const mesh = BabylonCore.MeshBuilder.CreateBox("GLB Payload", { size: 1.25 }, scene);
     const material = new BabylonCore.PBRMaterial("GLB Material", scene);
-    material.albedoColor = BABYLON_COLOR();
+    material.albedoColor = BabylonCore.Color3.FromHexString("#83f0ce");
     material.metallic = 0.72;
     material.roughness = 0.28;
     mesh.material = material;
@@ -111,6 +111,3 @@ test("native Babylon exporter returns a real binary GLB container", async () => 
   }
 });
 
-function BABYLON_COLOR(): BabylonCore.Color3 {
-  return BabylonCore.Color3.FromHexString("#83f0ce");
-}
