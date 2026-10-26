@@ -107,7 +107,13 @@ workerScope.addEventListener("message", async (event) => {
   const request = event.data;
   if (!request || request.type !== "run" || activeRequest) return;
   activeRequest = true;
-  const engine = new BabylonCore.NullEngine({ renderWidth: 1024, renderHeight: 768 });
+  const engine = new BabylonCore.NullEngine({
+    renderWidth: 1024,
+    renderHeight: 768,
+    textureSize: 512,
+    deterministicLockstep: false,
+    lockstepMaxSteps: 4,
+  });
   let scene: BabylonCore.Scene | null = null;
 
   try {
