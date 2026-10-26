@@ -220,7 +220,7 @@ async function createMaterial(
         ? Material.MATERIAL_ALPHABLEND
         : Material.MATERIAL_OPAQUE;
   material.alphaCutOff = spec.alphaCutoff;
-  material.useAlphaFromAlbedoTexture = spec.alphaMode === "BLEND";
+  material.useAlphaFromAlbedoTexture = spec.alphaMode !== "OPAQUE";
   material.useAmbientInGrayScale = true;
   material.ambientTextureStrength = 1;
 
@@ -236,6 +236,9 @@ async function createMaterial(
     material.sheen.color = color3(state.sheenColor);
   }
   if (state.transmission > 0) {
+    // PBR refraction needs a concrete environment source. Scene-screen transmission
+    // requires a separate render-graph pipeline and is not claimed by this adapter.
+    material.refractionTexture = scene.environmentTexture;
     material.subSurface.isRefractionEnabled = true;
     material.subSurface.refractionIntensity = state.transmission;
     material.subSurface.indexOfRefraction = state.ior;
@@ -269,7 +272,7 @@ async function createMaterial(
       switch (slot) {
         case "albedo":
           material.albedoTexture = texture;
-          material.useAlphaFromAlbedoTexture = spec.alphaMode === "BLEND";
+          material.useAlphaFromAlbedoTexture = spec.alphaMode !== "OPAQUE";
           break;
         case "normal":
           material.bumpTexture = texture;
