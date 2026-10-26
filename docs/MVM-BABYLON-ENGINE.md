@@ -1,43 +1,44 @@
-# MVM BABYLON renderer
+# MVM BABYLON — native engine implementation
 
-## What this change is
+## What runs when MVM BABYLON is selected
 
-MVM BABYLON is a separate Babylon.js renderer backend for the existing Forge project schema. The current feature branch uses `@babylonjs/core` 9.32.x, attempts WebGPU initialization first, and falls back to Babylon's WebGL engine if WebGPU is unavailable or initialization fails.
+MVM BABYLON is now a **native Babylon.js authoring/runtime path**, not only a renderer for Forge's Three.js-produced scene graph.
 
-The viewport backend converts the saved Forge scene into Babylon objects: mesh primitives and custom vertex buffers, transform hierarchy, light types, PBR materials, generated/imported texture assets, the available texture slots, clearcoat, sheen, transmission/refraction settings, scene exposure, camera controls, shadows and authored animation clips. The Studio viewport includes an explicit engine switch so the current Three.js renderer remains available for comparison and rollback.
+- The Studio passes the actual Babylon Engine or WebGPUEngine, Scene, canvas, BABYLON namespace and console to native JavaScript code. Code can create real BABYLON.MeshBuilder geometry, PBRMaterial/StandardMaterial, textures, lights, cameras, animation groups, transforms, imported assets and other public Babylon objects directly.
+- After a successful run, the complete native scene is serialized with Babylon's SceneSerializer into the project's nativeBabylonScene field. A bounded Forge node summary exists for inspector and existing validation UI; it is not the rendering or export source of truth for a native Babylon project.
+- Reloaded projects are parsed back into a Babylon Scene. The browser canvas uses WebGPU first, with a Babylon WebGL fallback if WebGPU initialization is unavailable.
+- The selected engine is also used for MCP script jobs. The connected AI's JavaScript runs against the active Babylon scene rather than being forced through the old mvm.* / Three.js adapter.
+- GLB import uses Babylon's registered glTF loader and GLB export uses Babylon's GLTF2Export.GLBAsync. The Three.js runtime/export path remains available for existing legacy projects.
+- Engine switching keeps a separate editor buffer for each API. A saved native Babylon scene is preserved while switching to Three.js, then invalidated if a Three.js script actually changes the project.
 
-## Compatibility boundary — important
+## Scene data and compatibility boundaries
 
-This is a real second rendering backend, **not yet a complete removal of Three.js from the product**.
+- Existing Forge JSON projects without an engine field remain legacy Three.js projects. Selecting MVM BABYLON explicitly opts into native BABYLON.* code; old mvm.* scripts are not silently reinterpreted as Babylon code.
+- nativeBabylonScene is serialized along with the rest of project JSON. Its current transfer budget is 2,000,000 characters, and the inspector projection is limited to 400 meshes / 140,000 summarized vertices. Very large embedded-texture models may exceed that budget and need a separate binary-asset storage pipeline before paid access.
+- The bounded Forge summary is not a perfect round-trip representation of every Babylon feature. It is used for current inspector/validation features; the saved Babylon scene JSON retains the richer native hierarchy and materials.
+- The native runner exposes real Babylon APIs, but it still executes user JavaScript in the browser page's JavaScript realm. It is not yet an isolated worker/iframe security boundary with a hard execution timeout. Do not treat it as a secure multi-tenant code sandbox until that isolation is implemented.
+- The engine is WebGPU-first, not WebGPU-only. Browsers without a usable WebGPU adapter must use WebGL; the viewport reports the backend that actually initialized.
+- The built-in PBR environment references an environment asset hosted by Babylon. An offline HDRI bundle is not included in this change.
+- Environment-backed refraction is implemented for glass-like materials, but that does not claim full scene-screen transmission. The engine does not automatically create scanned assets, high-resolution textures, calibrated skin/hair/cloth shaders, volumetrics or ray-traced reflections.
+- “100× realism” and “100× faster” are not claimed. Those require a fixed scene, comparable settings and recorded benchmarks.
 
-- Existing code is still executed by the current Forge SDK and the supported `THREE` compatibility runtime; its output is normalized into the Forge project schema. The Babylon backend renders that validated schema.
-- Existing `/mcp` tools still use the current execution pipeline. The Babylon viewport forwards rendered canvas frames through the existing Studio capture hook so remote render/screenshot flows can continue to operate.
-- Existing GLB export is still implemented by the existing Three.js exporter. Do not describe it as a Babylon-native exporter.
-- Forge currently supports the standard scene/material fields only. It does not automatically produce high-resolution scanned assets, calibrated skin/hair/cloth shaders, advanced volumetrics, ray-traced reflections or physically validated real-world material measurements.
+## Verification and release gate
 
-## Current limitations to test
+The CI workflow runs the actual project build, TypeScript check, lint, existing MCP/auth/scene regressions and new Babylon native-runner tests. The native runner tests use Babylon's real NullEngine to confirm BABYLON.MeshBuilder and PBRMaterial scripts produce a serialized native scene and valid Forge summary projection.
 
-- Babylon's built-in environment asset is fetched from `assets.babylonjs.com` when no custom environment is configured; a fully offline environment bundle is not included in this change.
-- Babylon custom environment URLs support `.env` and `.hdr` in this backend. The current Three.js backend additionally knows about EXR; EXR parity is not claimed here.
-- Texture channels are adapted to Babylon's PBR conventions. Imported normal, ambient-occlusion, roughness, metallic, emissive, clearcoat, transmission/thickness and sheen maps must be checked with representative assets; an assigned texture does not by itself guarantee identical appearance between renderers.
-- Transmission currently uses an environment-backed refraction path and optional refraction-intensity texture; this is not full scene-screen transmission. A physically complete transmission render-graph path remains future work.
-- The named environment presets are compatibility hints for exposure/environment strength, not a promise that each one uses a different photographed HDRI.
-- WebGPU capability depends on the user's browser, OS, GPU and security context. The UI reports whether the active backend is WebGPU or WebGL; do not report WebGPU when the fallback was selected.
+Before this is released as a paid engine, still manually verify on real browsers and real assets:
 
-## Release gate before paid access
+1. Load/save/reload a representative textured GLB and compare its PBR appearance, transforms, imported materials and animations.
+2. Export a native Babylon scene to GLB and re-import that GLB in Babylon and an independent viewer.
+3. Verify MCP run/apply/capture in an actual browser, including conflict and failed-script flows.
+4. Run the same controlled scene on Babylon WebGPU, Babylon WebGL and the retained Three.js path; record frame-time/FPS and memory on both a modest laptop and a modern GPU.
+5. Confirm texture disposal and no leaks during repeated import, code run, project switching, save and reload.
+6. Design a binary asset persistence path before raising the native scene payload limit; do not bypass the size guard to make large imports appear to work.
 
-Do not merge or promote this as production-ready until the following are verified on the actual branch/deployment:
+## References
 
-1. `npm ci`, `npm run typecheck`, `npm test`, `npm run lint` and `npm run build` all pass.
-2. The same benchmark project renders in Babylon WebGPU, Babylon WebGL fallback and the retained Three.js viewport; compare object hierarchy, transforms, UVs, all supported PBR slots, alpha modes, animation timing and scene scale.
-3. Test with at least one real textured GLB, separate base-colour/normal/AO/roughness/metalness maps, a transparent object, a clear-coated metal and a transmissive glass-like object.
-4. Confirm the MCP scene-run/apply pipeline, remote render job capture, screenshot delivery, export action, save/reload, and old project files all work without data loss.
-5. Measure frame-time/FPS and GPU memory with a fixed representative scene on a lower-end laptop and a modern WebGPU-capable device. Publish measurements rather than a “100×” claim unless a controlled benchmark demonstrates a specific improvement.
-6. Confirm resource disposal during repeated project switches and no console errors or network failures for optional textures/environments.
-
-## Reference
-
-- Babylon.js is distributed as ES modules through `@babylonjs/core` (Apache-2.0): https://www.npmjs.com/package/@babylonjs/core
-- Engine feature list: https://www.babylonjs.com/specifications/
-- PBR material conventions and subsurface textures: https://github.com/BabylonJS/Documentation/blob/master/content/features/featuresDeepDive/materials/using/masterPBR.md
-- WebGPU initialization requires asynchronous engine initialization: https://github.com/BabylonJS/Documentation/blob/master/content/setup/support/webGPU.md
+- Babylon.js core package: https://www.npmjs.com/package/@babylonjs/core
+- Babylon.js specification and feature support: https://www.babylonjs.com/specifications/
+- PBR material guide: https://github.com/BabylonJS/Documentation/blob/master/content/features/featuresDeepDive/materials/using/masterPBR.md
+- WebGPU setup and asynchronous engine initialization: https://github.com/BabylonJS/Documentation/blob/master/content/setup/support/webGPU.md
+- glTF exporter: https://doc.babylonjs.com/features/featuresDeepDive/Exporters/glTFExporter/
