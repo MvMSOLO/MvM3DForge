@@ -949,6 +949,38 @@ function Studio() {
     setMessage("Importing GLB · reading meshes, PBR values and embedded maps…");
     try {
       const before = { ...project, code, updatedAt: Date.now() };
+      if (engineMode === "babylon") {
+        const viewport = babylonViewportRef.current;
+        if (!viewport) throw new Error("MVM BABYLON viewport is not ready for native GLB import.");
+        const nativeResult = await viewport.importGlb(file);
+        if (!nativeResult.ok) {
+          throw new Error(`Native Babylon GLB import failed: ${nativeResult.error.message}`);
+        }
+        const patched = applyScriptPatch(before, nativeResult.patch);
+        const nativeProject: Project = {
+          ...patched,
+          engine: "babylon",
+          nativeBabylonScene: nativeResult.patch.nativeBabylonScene ?? patched.nativeBabylonScene ?? null,
+          code,
+          author: before.author,
+          updatedAt: Date.now(),
+        };
+        useHistoryStore.getState().executeCommand({
+          description: "Native Babylon GLB import · " + file.name,
+          undo: () => setProject(before),
+          redo: () => setProject(nativeProject),
+        });
+        babylonCodeRef.current = code;
+        setActiveClipId(null);
+        setIsPlaying(false);
+        setLogs([
+          `[GLB] Loaded ${file.name} with Babylon.js GLTF loader`,
+          `[GLB] Native scene meshes: ${nativeProject.objects.filter((node) => node.type === "mesh").length}`,
+          "[GLB] Scene JSON and imported materials are retained in the native Babylon project payload.",
+        ]);
+        setMessage(`Native Babylon GLB imported · ${nativeProject.objects.filter((node) => node.type === "mesh").length} mesh summaries`);
+        return;
+      }
       const result = await importGlbFile(file, before);
       useHistoryStore.getState().executeCommand({
         description: "Import GLB · " + file.name,
