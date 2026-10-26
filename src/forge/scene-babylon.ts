@@ -204,8 +204,7 @@ async function loadTextureAsset(
     );
   } else if (asset.dataUrl) {
     texture = await new Promise<Texture>((resolve, reject) => {
-      let created: Texture;
-      created = new Texture(
+      const created = new Texture(
         asset.dataUrl ?? null,
         scene,
         false,
