@@ -6,7 +6,7 @@ import { ForgeError, errorToIssue, issue } from "../errors.ts";
 import { defaultMaterial } from "../materials.ts";
 import { makeNode } from "../nodes.ts";
 import { BUDGET_CEILINGS, LIMITS } from "../limits.ts";
-import type { GeometrySpec, LogEntry, MaterialSpec, Project, RunResult, SceneNode } from "../types.ts";
+import type { GeometrySpec, LogEntry, MaterialSpec, RunResult, SceneNode } from "../types.ts";
 
 const MAX_NATIVE_PAYLOAD_CHARS = 2_000_000;
 const MAX_NATIVE_OBJECTS = Math.min(BUDGET_CEILINGS.maxObjects, 400);
@@ -15,9 +15,13 @@ const MAX_NATIVE_VERTICES = 140_000;
 const BABYLON = Object.assign({}, BabylonCore, { GUI: BabylonGUI });
 let loadersPromise: Promise<void> | undefined;
 
-function ensureLoaders(): Promise<void> {
-  loadersPromise ??= registerBuiltInLoaders();
-  return loadersPromise;
+export async function ensureBabylonLoaders(): Promise<void> {
+  if (!loadersPromise) {
+    loadersPromise = Promise.resolve().then(() => {
+      registerBuiltInLoaders();
+    });
+  }
+  await loadersPromise;
 }
 
 function pushLog(logs: LogEntry[], level: LogEntry["level"], values: unknown[]): void {
@@ -184,7 +188,7 @@ export async function executeBabylonCodeInScene(
   }
 
   try {
-    await ensureLoaders();
+    await ensureBabylonLoaders();
     const scriptConsole = {
       log: (...args: unknown[]) => pushLog(logs, "log", args),
       info: (...args: unknown[]) => pushLog(logs, "info", args),
