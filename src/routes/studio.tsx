@@ -460,7 +460,16 @@ function Studio() {
           responseData = await postAction({ action: "execution-result", jobId: job.id });
         } else {
           setCode(job.code);
-          runResult = await executeUserCode(job.code);
+          if (engineMode === "babylon") {
+            const viewport = babylonViewportRef.current;
+            if (!viewport) {
+              await postAction({ action: "fail", jobId: job.id, error: "MVM BABYLON viewport was not ready to execute this native scene job." });
+              return;
+            }
+            runResult = await viewport.runCode(job.code);
+          } else {
+            runResult = await executeUserCode(job.code);
+          }
           responseData = await postAction({ action: "execution-result", jobId: job.id, runResult });
         }
 
@@ -788,6 +797,69 @@ function Studio() {
       babylonViewportRef.current?.setPlayback(isPlaying, activeClipId);
     }
   }, [engineMode, isPlaying, activeClipId]);
+
+  async function runCurrentCode() {
+    if (engineMode === "three") {
+      await runCode();
+      return;
+    }
+    const activeProject = useStudioStore.getState().project;
+    const activeCode = useStudioStore.getState().code;
+    if (!activeProject || running || busy) return;
+    const viewport = babylonViewportRef.current;
+    if (!viewport) {
+      setMessage("MVM BABYLON is still initializing. Wait for the backend status before running code.");
+      setActiveTab("console");
+      return;
+    }
+
+    setRunning(true);
+    setMessage("Executing native Babylon.js against the active GPU scene…");
+    try {
+      const result = await viewport.runCode(activeCode);
+      const formattedLogs = result.logs.map((entry) =>
+        entry.level === "error"
+          ? `[ERROR] ${entry.message}`
+          : entry.level === "warn"
+            ? `[WARN] ${entry.message}`
+            : entry.message
+      );
+      if (!result.ok) {
+        setLogs([...formattedLogs, `[${result.error.code}] ${result.error.message}`]);
+        setMessage(result.error.message);
+        setActiveTab("console");
+        return;
+      }
+
+      const patched = applyScriptPatch(activeProject, result.patch);
+      const nextProject: Project = {
+        ...patched,
+        engine: "babylon",
+        nativeBabylonScene: result.patch.nativeBabylonScene ?? patched.nativeBabylonScene ?? null,
+        code: activeCode,
+        author: activeProject.author,
+        updatedAt: Date.now(),
+      };
+      useHistoryStore.getState().executeCommand({
+        description: "MVM BABYLON native scene execution",
+        undo: () => setProject(activeProject),
+        redo: () => setProject(nextProject),
+      });
+      babylonCodeRef.current = activeCode;
+      setActiveClipId(null);
+      setIsPlaying(false);
+      setLogs(formattedLogs.length ? formattedLogs : ["Native Babylon.js scene executed successfully."]);
+      setMessage(`Native Babylon run complete · ${nextProject.objects.filter((node) => node.type === "mesh").length} mesh summaries · scene JSON saved`);
+      setActiveTab("console");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Native Babylon.js execution failed.";
+      setLogs([`[ERROR] MVM BABYLON: ${detail}`]);
+      setMessage(detail);
+      setActiveTab("console");
+    } finally {
+      setRunning(false);
+    }
+  }
 
   function saveProject() {
     if (!project) return;
