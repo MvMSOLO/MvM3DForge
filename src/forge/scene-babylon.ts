@@ -1,6 +1,7 @@
 import {
   Animation,
   ArcRotateCamera,
+  Camera,
   Color3,
   Color4,
   CubeTexture,
@@ -27,6 +28,11 @@ import {
 } from "@babylonjs/core";
 import type { MaterialSpec, Project, SceneNode, TextureAsset, ViewMode } from "./types.ts";
 import { rasterizeTexture } from "./textures.ts";
+import { LoadSceneAsync } from "@babylonjs/core/Loading/sceneLoader";
+import "@babylonjs/core/Loading/Plugins/babylonFileLoader";
+import { GLTF2Export } from "@babylonjs/serializers/glTF";
+import { executeBabylonCodeInScene, ensureBabylonLoaders } from "./sdk/execute-babylon.ts";
+import type { RunResult } from "./types.ts";
 
 /**
  * MVM BABYLON is a renderer backend for Forge's validated, engine-neutral project scene.
@@ -37,6 +43,8 @@ export type BabylonViewportHandle = {
   backend: "WebGPU" | "WebGL";
   dispose: () => void;
   setPlayback: (playing: boolean, clipId: string | null) => void;
+  runCode: (code: string) => Promise<RunResult>;
+  exportGlb: () => Promise<Blob>;
 };
 
 export type BabylonViewportOptions = {
@@ -657,8 +665,39 @@ export async function mountBabylonViewport(
   options.onBackend?.(backend);
   engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 1.5));
 
-  const scene = new Scene(engine);
-  scene.useRightHandedSystem = true;
+  let scene: Scene;
+  let activeCamera: Camera | null = null;
+  let nativeSceneActive = Boolean(project.engine === "babylon" && project.nativeBabylonScene);
+  let clipMap = new Map<string, { duration: number; loop: boolean; tracks: Array<{ target: TransformNode; animation: Animation }> }>();
+
+  if (nativeSceneActive && project.nativeBabylonScene) {
+    await ensureBabylonLoaders();
+    scene = await LoadSceneAsync(
+      `data:${JSON.stringify(project.nativeBabylonScene)}`,
+      engine,
+      { pluginExtension: ".babylon" },
+    );
+    activeCamera = scene.activeCamera ?? scene.cameras[0] ?? null;
+    if (!scene.activeCamera && activeCamera) scene.activeCamera = activeCamera;
+    if (!scene.activeCamera) {
+      const fallback = new ArcRotateCamera(
+        "MVM BABYLON Camera",
+        -Math.PI / 2,
+        Math.PI / 3,
+        8,
+        Vector3.Zero(),
+        scene,
+      );
+      scene.activeCamera = fallback;
+      activeCamera = fallback;
+    }
+    activeCamera?.attachControl(canvas, true);
+    for (const group of scene.animationGroups) {
+      group.start(group.loopAnimation);
+    }
+  } else {
+    scene = new Scene(engine);
+    scene.useRightHandedSystem = true;
   scene.clearColor = new Color4(
     color3(project.scene.background || "#10161e").r,
     color3(project.scene.background || "#10161e").g,
@@ -764,13 +803,21 @@ export async function mountBabylonViewport(
   camera.wheelDeltaPercentage = 0.012;
   camera.panningSensibility = 55;
   camera.attachControl(canvas, true);
+  activeCamera = camera;
 
-  const clipMap = installAnimations(project, objectsById);
+  clipMap = installAnimations(project, objectsById);
+  }
   let activeAnimatables: Array<{ stop: () => void }> = [];
   const setPlayback = (playing: boolean, clipId: string | null) => {
     scene.stopAllAnimations();
+    activeAnimatables.forEach((animatable) => animatable.stop());
     activeAnimatables = [];
-    if (!playing || !clipId) return;
+    if (!playing) return;
+    if (nativeSceneActive) {
+      for (const group of scene.animationGroups) group.start(group.loopAnimation);
+      return;
+    }
+    if (!clipId) return;
     const clip = clipMap.get(clipId);
     if (!clip) return;
     const endFrame = Math.max(1, clip.duration * 30);
@@ -794,13 +841,70 @@ export async function mountBabylonViewport(
   return {
     backend,
     setPlayback,
+    runCode: async (code: string) => {
+      if (disposed) {
+        throw new Error("MVM BABYLON viewport has already been disposed.");
+      }
+      const draft = new Scene(engine);
+      draft.useRightHandedSystem = true;
+      draft.clearColor = new Color4(0.035, 0.05, 0.07, 1);
+      try {
+        const result = await executeBabylonCodeInScene(code, draft, engine, canvas);
+        if (!result.ok) {
+          draft.dispose();
+          return result;
+        }
+        const previous = scene;
+        activeCamera?.detachControl();
+        scene = draft;
+        nativeSceneActive = true;
+        activeCamera = scene.activeCamera ?? scene.cameras[0] ?? null;
+        if (!scene.activeCamera && activeCamera) scene.activeCamera = activeCamera;
+        if (!activeCamera) {
+          const fallback = new ArcRotateCamera(
+            "MVM BABYLON Camera",
+            -Math.PI / 2,
+            Math.PI / 3,
+            8,
+            Vector3.Zero(),
+            scene,
+          );
+          scene.activeCamera = fallback;
+          activeCamera = fallback;
+        }
+        activeCamera.attachControl(canvas, true);
+        clipMap = new Map();
+        activeAnimatables = [];
+        previous.stopAllAnimations();
+        previous.dispose();
+        setPlayback(true, null);
+        return result;
+      } catch (error) {
+        draft.dispose();
+        throw error;
+      }
+    },
+    exportGlb: async () => {
+      if (disposed) throw new Error("MVM BABYLON viewport has already been disposed.");
+      const filename = "mvm-babylon-export";
+      const data = await GLTF2Export.GLBAsync(scene, filename, {
+        shouldExportNode: (node) => !node.name.startsWith("MVM Grid") && node.name !== "MVM Studio Ground",
+      });
+      const file = data.glTFFiles[`${filename}.glb`];
+      if (!file) {
+        throw new Error("Babylon's native GLB exporter did not return a .glb binary.");
+      }
+      if (file instanceof Blob) return file;
+      if (typeof file === "string") return new Blob([file], { type: "model/gltf-binary" });
+      return new Blob([file], { type: "model/gltf-binary" });
+    },
     dispose: () => {
       if (disposed) return;
       disposed = true;
       resizeObserver.disconnect();
       activeAnimatables.forEach((animatable) => animatable.stop());
       scene.stopAllAnimations();
-      camera.detachControl();
+      activeCamera?.detachControl();
       scene.dispose();
       engine.stopRenderLoop();
       engine.dispose();
