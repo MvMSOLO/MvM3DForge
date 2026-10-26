@@ -699,6 +699,8 @@ export async function mountBabylonViewport(
       activeCamera = fallback;
     }
     activeCamera?.attachControl(canvas, true);
+    if (project.scene.grid) makeGrid(scene);
+    makeGround(scene);
     for (const group of scene.animationGroups) {
       group.start(group.loopAnimation);
     }
@@ -856,6 +858,11 @@ export async function mountBabylonViewport(
       draft.useRightHandedSystem = true;
       draft.clearColor = new Color4(0.035, 0.05, 0.07, 1);
       try {
+        draft.environmentTexture = CubeTexture.CreateFromPrefilteredData(
+          "https://assets.babylonjs.com/environments/environmentSpecular.env",
+          draft,
+        );
+        draft.environmentIntensity = 0.85;
         const result = await executeBabylonCodeInScene(code, draft, engine, canvas);
         if (!result.ok) {
           draft.dispose();
@@ -880,6 +887,8 @@ export async function mountBabylonViewport(
           activeCamera = fallback;
         }
         activeCamera.attachControl(canvas, true);
+        if (project.scene.grid) makeGrid(scene);
+        makeGround(scene);
         clipMap = new Map();
         activeAnimatables = [];
         previous.stopAllAnimations();
@@ -920,7 +929,10 @@ export async function mountBabylonViewport(
       if (disposed) throw new Error("MVM BABYLON viewport has already been disposed.");
       const filename = "mvm-babylon-export";
       const data = await GLTF2Export.GLBAsync(scene, filename, {
-        shouldExportNode: (node) => !node.name.startsWith("MVM Grid") && node.name !== "MVM Studio Ground",
+        shouldExportNode: (node) =>
+          !node.name.startsWith("MVM Grid") &&
+          !node.name.startsWith("MVM Axis") &&
+          node.name !== "MVM Studio Ground",
       });
       const file = data.glTFFiles[`${filename}.glb`];
       if (!file) {
