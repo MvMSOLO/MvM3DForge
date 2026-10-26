@@ -204,6 +204,10 @@ export type SceneSettings = {
 };
 
 export type Project = {
+  /** Active authoring/runtime backend. Missing means legacy Three.js for old project files. */
+  engine?: "three" | "babylon";
+  /** Native Babylon.js scene serialization. This is authoritative when engine === "babylon". */
+  nativeBabylonScene?: Record<string, unknown> | null;
   id: string;
   name: string;
   schemaVersion: typeof brand.schemaVersion;
@@ -252,6 +256,9 @@ export type ExportRequest = {
 export type ScriptSceneMutation = "none" | "replace" | "clear";
 
 export type ScriptPatch = {
+  /** Native engine output. When present, nativeBabylonScene is the rendering/export source of truth. */
+  engine?: "three" | "babylon";
+  nativeBabylonScene?: Record<string, unknown> | null;
   /** Whether the script generated a scene, explicitly cleared it, or only changed settings/assets. */
   sceneMutation?: ScriptSceneMutation;
   objects: SceneNode[];
