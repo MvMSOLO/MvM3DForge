@@ -203,6 +203,7 @@ function Studio() {
     setPlayback: (playing: boolean, clipId: string | null) => void;
     runCode: (code: string) => Promise<Awaited<ReturnType<typeof executeUserCode>>>;
     exportGlb: () => Promise<Blob>;
+    importGlb: (file: File) => Promise<Awaited<ReturnType<typeof executeUserCode>>>;
   } | null>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionsRef = useRef<Map<string, THREE.AnimationAction>>(new Map());
