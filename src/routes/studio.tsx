@@ -42,16 +42,15 @@ import type { Project } from "@/forge/types.ts";
 
 export const Route = createFileRoute("/studio")({ component: Studio });
 
-const AI_CONTEXT_PROMPT = `You are helping me build a real 3D scene in MvM 3D Forge (MVM 3D FORGE), a browser-based TypeScript/React + Three.js scene authoring studio.
+const AI_CONTEXT_PROMPT = `You are helping me build a real 3D scene in MvM 3D Forge (MVM 3D FORGE).
 
-HOW TO WRITE CODE:
-- The code editor executes JavaScript, not TypeScript. Do not use type annotations, import statements, Node APIs, arbitrary network requests, or external package installs inside the script.
-- The runtime provides mvm (the Forge SDK), THREE (the installed Three.js namespace), scene (a real THREE.Scene), and console methods that appear in the Studio Console.
-- Preferred native SDK workflow: create objects with mvm.geometry.*, assign mvm.material.pbr(...), set position/rotation/scale, then call mvm.scene.add(...).
-- Material declarations alone do NOT create visible geometry. Include the geometry, material assignment, transforms, and scene.add/mvm.scene.add calls in the same complete script.
-- Animation: create clips with mvm.animation.clip({ name, duration, loop }), tracks with mvm.animation.track(clip, { object, property, interpolation, keys }), then call mvm.animation.play(clipNameOrId).
-- Console: use console.log/info/debug/warn/error or mvm.console.log/warn/error. Runtime and renderer failures are also surfaced in the Studio Console.
-- Export: the Studio can export a GLB. Check warnings and unsupported conversion details before promising perfect round-trip fidelity.`;
+ENGINE RULES:
+- When the selected engine is MVM BABYLON, write native Babylon.js JavaScript using the injected real BABYLON namespace, engine, scene, canvas, and console. Do not use mvm.* or THREE in that mode.
+- Create real native objects with BABYLON.MeshBuilder, BABYLON.PBRMaterial, BABYLON.StandardMaterial, BABYLON.Texture, BABYLON.HemisphericLight, BABYLON.DirectionalLight, BABYLON.ArcRotateCamera and other public Babylon APIs. Add meshes/materials/lights to the supplied scene directly; it is already connected to the active GPU engine.
+- Do not re-create engine or canvas. Do not use import statements, Node APIs, package installs or arbitrary network fetches inside the script. Use registered Babylon loaders for supported model import workflows.
+- Include real mesh geometry, material setup, transforms, camera and lighting; material-only code does not create visible geometry. Native Babylon scene JSON and the native Babylon GLB exporter are used in this mode.
+- When the selected engine is Three.js, use the existing mvm SDK, THREE compatibility runtime, and scene. Do not mix APIs between modes.
+- Console: use console.log/info/debug/warn/error. Runtime and renderer failures are shown in the Studio Console. Do not claim fidelity or performance not validated by a real export/re-import and benchmark.`;
 
 const integrationGroups = [
   {
@@ -108,6 +107,53 @@ function downloadBlob(blob: Blob, name: string) {
   URL.revokeObjectURL(url);
 }
 
+const BABYLON_STARTER_CODE = `const floor = BABYLON.MeshBuilder.CreateGround("Studio Floor", { width: 12, height: 12, subdivisions: 2 }, scene);
+floor.position.y = -0.03;
+const floorMaterial = new BABYLON.PBRMaterial("Floor · Graphite", scene);
+floorMaterial.albedoColor = BABYLON.Color3.FromHexString("#171f29");
+floorMaterial.roughness = 0.9;
+floor.material = floorMaterial;
+
+const body = BABYLON.MeshBuilder.CreateBox("Titanium Housing", { width: 1.6, height: 0.8, depth: 1.1, subdivisions: 8 }, scene);
+body.position.y = 0.55;
+const metal = new BABYLON.PBRMaterial("Brushed Titanium", scene);
+metal.albedoColor = BABYLON.Color3.FromHexString("#718b9b");
+metal.metallic = 0.82;
+metal.roughness = 0.24;
+metal.clearCoat.isEnabled = true;
+metal.clearCoat.intensity = 0.35;
+body.material = metal;
+
+const core = BABYLON.MeshBuilder.CreateSphere("Energy Core", { diameter: 0.72, segments: 64 }, scene);
+core.position.set(0, 1.22, 0);
+const coreMaterial = new BABYLON.PBRMaterial("Cyan Ceramic", scene);
+coreMaterial.albedoColor = BABYLON.Color3.FromHexString("#15a8c6");
+coreMaterial.metallic = 0.28;
+coreMaterial.roughness = 0.18;
+coreMaterial.emissiveColor = BABYLON.Color3.FromHexString("#063d51");
+core.material = coreMaterial;
+
+const ring = BABYLON.MeshBuilder.CreateTorus("Precision Ring", { diameter: 1.18, thickness: 0.045, tessellation: 96 }, scene);
+ring.position.y = 1.22;
+ring.rotation.x = Math.PI / 2;
+const ringMaterial = new BABYLON.PBRMaterial("Anodized Alloy", scene);
+ringMaterial.albedoColor = BABYLON.Color3.FromHexString("#83f0ce");
+ringMaterial.metallic = 0.88;
+ringMaterial.roughness = 0.2;
+ring.material = ringMaterial;
+
+const camera = new BABYLON.ArcRotateCamera("Product Camera", -Math.PI / 2.5, Math.PI / 2.75, 5.5, new BABYLON.Vector3(0, 0.8, 0), scene);
+camera.minZ = 0.01;
+camera.wheelDeltaPercentage = 0.012;
+scene.activeCamera = camera;
+const fill = new BABYLON.HemisphericLight("Soft Fill", new BABYLON.Vector3(0, 1, 0), scene);
+fill.intensity = 0.7;
+fill.groundColor = BABYLON.Color3.FromHexString("#263341");
+const key = new BABYLON.DirectionalLight("Studio Key", new BABYLON.Vector3(-0.55, -1, 0.45), scene);
+key.intensity = 2.0;
+key.position.set(4, 7, 5);
+console.log("Native Babylon scene created", { meshes: scene.meshes.length, renderer: engine.constructor.name });`;
+
 function Studio() {
   const viewportRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -133,6 +179,7 @@ function Studio() {
     setActiveClipId,
     setIsPlaying,
     setBusy,
+    setRunning,
     setMessage,
     addLog,
     setLogs,
@@ -146,12 +193,16 @@ function Studio() {
   const { undo, redo, canUndo, canRedo } = useHistoryStore();
 
   const [copied, setCopied] = useState(false);
-  const [engineMode, setEngineMode] = useState<"babylon" | "three">("babylon");
+  const [engineMode, setEngineMode] = useState<"babylon" | "three">("three");
+  const threeCodeRef = useRef<string | null>(null);
+  const babylonCodeRef = useRef<string | null>(null);
   const [babylonBackend, setBabylonBackend] = useState<"WebGPU" | "WebGL" | "initializing">("initializing");
   const babylonViewportRef = useRef<{
     backend: "WebGPU" | "WebGL";
     dispose: () => void;
     setPlayback: (playing: boolean, clipId: string | null) => void;
+    runCode: (code: string) => Promise<Awaited<ReturnType<typeof executeUserCode>>>;
+    exportGlb: () => Promise<Blob>;
   } | null>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionsRef = useRef<Map<string, THREE.AnimationAction>>(new Map());
@@ -165,6 +216,34 @@ function Studio() {
   useEffect(() => {
     void loadStarter("primitives");
   }, []);
+
+  useEffect(() => {
+    const nextEngine = project?.engine === "babylon" ? "babylon" : "three";
+    setEngineMode((current) => current === nextEngine ? current : nextEngine);
+  }, [project?.id, project?.engine]);
+
+  function switchEngine(nextEngine: "babylon" | "three") {
+    if (nextEngine === engineMode) return;
+    if (engineMode === "three") threeCodeRef.current = code;
+    else babylonCodeRef.current = code;
+
+    const nextCode = nextEngine === "babylon"
+      ? (babylonCodeRef.current ?? BABYLON_STARTER_CODE)
+      : (threeCodeRef.current ?? project?.code ?? "");
+    setEngineMode(nextEngine);
+    setCode(nextCode);
+
+    if (project) {
+      const nextProject: Project = {
+        ...project,
+        engine: nextEngine,
+        nativeBabylonScene: null,
+        code: nextCode,
+        updatedAt: Date.now(),
+      };
+      setProject(nextProject);
+    }
+  }
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -448,7 +527,7 @@ function Studio() {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [project?.id, project?.author]);
+  }, [project?.id, project?.author, engineMode]);
 
   useEffect(() => {
     const host = viewportRef.current;
@@ -722,8 +801,17 @@ function Studio() {
   async function exportGlb() {
     if (!project) return;
     setBusy(true);
-    setMessage("Building and validating binary glTF…");
+    setMessage(engineMode === "babylon" ? "Exporting the native Babylon.js scene to GLB…" : "Building and validating binary glTF…");
     try {
+      if (engineMode === "babylon") {
+        const viewport = babylonViewportRef.current;
+        if (!viewport) throw new Error("MVM BABYLON viewport is not ready yet. Wait for the renderer status to finish initializing.");
+        const blob = await viewport.exportGlb();
+        const filename = `${project.name.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase() || "mvm-scene"}.glb`;
+        downloadBlob(blob, filename);
+        setMessage(`Native Babylon GLB exported · ${(blob.size / 1024).toFixed(1)} KB`);
+        return;
+      }
       const built = await assembleScene(project, { mode: "material", shadows: false, onlyVisible: false });
       if (!project.objects.some((node) => node.type === "mesh" && node.visible)) {
         setMessage("No visible mesh to export. Run a mesh example first.");
@@ -1128,7 +1216,7 @@ function Studio() {
                   <button
                     key={engine}
                     type="button"
-                    onClick={() => setEngineMode(engine)}
+                    onClick={() => switchEngine(engine)}
                     aria-pressed={engineMode === engine}
                     className={`rounded-md px-2 py-1.5 text-[10px] cursor-pointer transition-colors ${
                       engineMode === engine
@@ -1260,7 +1348,7 @@ function Studio() {
                   </div>
                 </div>
                 <button
-                  onClick={() => void runCode()}
+                  onClick={() => void runCurrentCode()}
                   disabled={!project || running || busy}
                   className="inline-flex items-center gap-2 rounded-lg bg-[#83f0ce] px-3 py-2 text-xs font-semibold text-[#071511] disabled:opacity-50 cursor-pointer"
                 >
@@ -1276,7 +1364,7 @@ function Studio() {
                 placeholder="// Write MVM SDK code here…"
               />
               <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-[10px] leading-5 text-slate-500">
-                <span>JavaScript · mvm SDK + Three.js bridge · mobile-aware budgets</span>
+                <span>{engineMode === "babylon" ? "JavaScript · native BABYLON runtime · GPU scene · native GLB" : "JavaScript · MVM SDK + Three.js compatibility runtime"}</span>
                 <button
                   onClick={() => void copyAIContext()}
                   className="inline-flex items-center gap-1.5 text-[#83f0ce] hover:text-white cursor-pointer"
