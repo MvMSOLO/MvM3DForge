@@ -238,7 +238,6 @@ function Studio() {
       const nextProject: Project = {
         ...project,
         engine: nextEngine,
-        nativeBabylonScene: null,
         code: nextCode,
         updatedAt: Date.now(),
       };
