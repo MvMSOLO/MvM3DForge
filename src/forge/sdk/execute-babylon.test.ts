@@ -138,13 +138,13 @@ test("native browser runner fails closed when module Worker is unavailable", asy
   });
 
   try {
-    const result = await executeBabylonCodeInIsolatedWorker("new BABYLON.MeshBuilder.CreateBox()", {});
+    const result = await executeBabylonCodeInIsolatedWorker("console.log('must not execute')", {});
     assert.equal(result.ok, false);
     if (result.ok) return;
     assert.equal(result.error.code, "MVM_E_BABYLON_WORKER_UNAVAILABLE");
     assert.match(result.error.message, /does not support the isolated Babylon worker/i);
   } finally {
     if (original) Object.defineProperty(globalThis, "Worker", original);
-    else delete (globalThis as typeof globalThis & { Worker?: unknown }).Worker;
+    else Reflect.deleteProperty(globalThis, "Worker");
   }
 });
