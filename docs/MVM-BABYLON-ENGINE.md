@@ -20,6 +20,7 @@ This is a real second rendering backend, **not yet a complete removal of Three.j
 - Babylon's built-in environment asset is fetched from `assets.babylonjs.com` when no custom environment is configured; a fully offline environment bundle is not included in this change.
 - Babylon custom environment URLs support `.env` and `.hdr` in this backend. The current Three.js backend additionally knows about EXR; EXR parity is not claimed here.
 - Texture channels are adapted to Babylon's PBR conventions. Imported normal, ambient-occlusion, roughness, metallic, emissive, clearcoat, transmission/thickness and sheen maps must be checked with representative assets; an assigned texture does not by itself guarantee identical appearance between renderers.
+- Transmission currently uses an environment-backed refraction path and optional refraction-intensity texture; this is not full scene-screen transmission. A physically complete transmission render-graph path remains future work.
 - The named environment presets are compatibility hints for exposure/environment strength, not a promise that each one uses a different photographed HDRI.
 - WebGPU capability depends on the user's browser, OS, GPU and security context. The UI reports whether the active backend is WebGPU or WebGL; do not report WebGPU when the fallback was selected.
 
