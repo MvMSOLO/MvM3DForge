@@ -299,8 +299,8 @@ async function createMaterial(
           material.useAlphaFromAlbedoTexture = spec.alphaMode !== "OPAQUE";
           break;
         case "normal":
+          texture.level = state.normalScale;
           material.bumpTexture = texture;
-          material.bumpTexture.level = state.normalScale;
           material.invertNormalMapX = false;
           material.invertNormalMapY = false;
           break;
