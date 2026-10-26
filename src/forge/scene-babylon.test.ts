@@ -11,6 +11,7 @@ const material: MaterialSpec = {
   opacity: 0.93,
   emissive: "#102030",
   emissiveIntensity: 1.7,
+  normalScale: 0.65,
   clearcoat: 0.8,
   clearcoatRoughness: 0.12,
   transmission: 0.25,
@@ -51,6 +52,7 @@ test("MVM BABYLON maps Forge PBR parameters and texture slots", () => {
   assert.equal(state.ior, 1.45);
   assert.equal(state.thickness, 0.2);
   assert.equal(state.sheen, 0.5);
+  assert.equal(state.normalScale, 0.65);
   assert.equal(state.textureIds.mapId, "albedo");
   assert.equal(state.textureIds.normalMapId, "normal");
   assert.equal(state.textureIds.roughnessMapId, "roughness");
