@@ -4,7 +4,7 @@ import * as BabylonCore from "@babylonjs/core";
 import { LoadSceneAsync } from "@babylonjs/core/Loading/sceneLoader.js";
 import "@babylonjs/core/Loading/Plugins/babylonFileLoader.js";
 import { GLTF2Export } from "@babylonjs/serializers";
-import { ensureBabylonLoaders, executeBabylonUserCode } from "./execute-babylon.ts";
+import { ensureBabylonLoaders, executeBabylonCodeInIsolatedWorker, executeBabylonUserCode } from "./execute-babylon.ts";
 
 test("native Babylon runtime executes Babylon MeshBuilder and PBRMaterial APIs", async () => {
   const result = await executeBabylonUserCode(`
@@ -126,3 +126,25 @@ test("native Babylon exporter returns a real binary GLB container", async () => 
   }
 });
 
+
+
+test("native browser runner fails closed when module Worker is unavailable", async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value: undefined,
+  });
+
+  try {
+    const result = await executeBabylonCodeInIsolatedWorker("new BABYLON.MeshBuilder.CreateBox()", {});
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.error.code, "MVM_E_BABYLON_WORKER_UNAVAILABLE");
+    assert.match(result.error.message, /does not support the isolated Babylon worker/i);
+  } finally {
+    if (original) Object.defineProperty(globalThis, "Worker", original);
+    else delete (globalThis as typeof globalThis & { Worker?: unknown }).Worker;
+  }
+});
