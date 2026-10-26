@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as BabylonCore from "@babylonjs/core";
-import { LoadSceneAsync } from "@babylonjs/core/Loading/sceneLoader.js";
+import { LoadAssetContainerAsync, LoadSceneAsync } from "@babylonjs/core/Loading/sceneLoader.js";
 import "@babylonjs/core/Loading/Plugins/babylonFileLoader.js";
 import { GLTF2Export } from "@babylonjs/serializers";
 import { ensureBabylonLoaders, executeBabylonUserCode } from "./execute-babylon.ts";
@@ -105,6 +105,24 @@ test("native Babylon exporter returns a real binary GLB container", async () => 
     const bytes = new Uint8Array(await file.arrayBuffer());
     assert.ok(bytes.length > 20, "GLB has a binary payload");
     assert.equal(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true), 0x46546c67);
+
+    await ensureBabylonLoaders();
+    const importEngine = new BabylonCore.NullEngine();
+    const importedScene = new BabylonCore.Scene(importEngine);
+    let container: Awaited<ReturnType<typeof LoadAssetContainerAsync>> | null = null;
+    try {
+      const glbFile = new File([file], "native-round-trip.glb", { type: "model/gltf-binary" });
+      container = await LoadAssetContainerAsync(glbFile, importedScene, { pluginExtension: ".glb" });
+      container.addAllToScene();
+      assert.ok(
+        importedScene.meshes.some((candidate) => candidate.name === "GLB Payload"),
+        "Babylon GLTF loader restores the exported native mesh",
+      );
+    } finally {
+      container?.dispose();
+      importedScene.dispose();
+      importEngine.dispose();
+    }
   } finally {
     scene.dispose();
     engine.dispose();
