@@ -146,6 +146,13 @@ function Studio() {
   const { undo, redo, canUndo, canRedo } = useHistoryStore();
 
   const [copied, setCopied] = useState(false);
+  const [engineMode, setEngineMode] = useState<"babylon" | "three">("babylon");
+  const [babylonBackend, setBabylonBackend] = useState<"WebGPU" | "WebGL" | "initializing">("initializing");
+  const babylonViewportRef = useRef<{
+    backend: "WebGPU" | "WebGL";
+    dispose: () => void;
+    setPlayback: (playing: boolean, clipId: string | null) => void;
+  } | null>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionsRef = useRef<Map<string, THREE.AnimationAction>>(new Map());
   const syncedClipRef = useRef<string | null>(null);
@@ -446,6 +453,10 @@ function Studio() {
   useEffect(() => {
     const host = viewportRef.current;
     if (!host || !project) return;
+    if (engineMode !== "three") {
+      host.replaceChildren();
+      return;
+    }
     const viewportProjectKey = `${project.id}:${project.updatedAt}`;
     renderedProjectKeyRef.current = null;
     let disposed = false;
@@ -641,7 +652,63 @@ function Studio() {
         }
       });
     };
-  }, [project, viewMode]);
+  }, [project, viewMode, engineMode]);
+
+  useEffect(() => {
+    const host = viewportRef.current;
+    if (!host || !project || engineMode !== "babylon") return;
+    const viewportProjectKey = `${project.id}:${project.updatedAt}`;
+    renderedProjectKeyRef.current = null;
+    let disposed = false;
+    let viewport: typeof babylonViewportRef.current = null;
+
+    setBabylonBackend("initializing");
+    void (async () => {
+      const { mountBabylonViewport } = await import("@/forge/scene-babylon.ts");
+      const mounted = await mountBabylonViewport(host, project, {
+        mode: viewMode,
+        onBackend: setBabylonBackend,
+        onWarning: (warning) => addLog(`[WARN] ${warning}`),
+        onFrame: (canvas) => {
+          renderedProjectKeyRef.current = viewportProjectKey;
+          const ready = renderWaitersRef.current.get(viewportProjectKey);
+          if (ready) ready();
+          const capture = pendingCanvasCaptureRef.current;
+          if (capture) {
+            pendingCanvasCaptureRef.current = null;
+            capture(canvas);
+          }
+        },
+      });
+      if (disposed) {
+        mounted.dispose();
+        return;
+      }
+      viewport = mounted;
+      babylonViewportRef.current = mounted;
+      mounted.setPlayback(isPlaying, activeClipId);
+    })().catch((error: unknown) => {
+      if (!disposed) {
+        const detail = error instanceof Error ? error.message : "MVM BABYLON could not initialize.";
+        addLog(`[ERROR] MVM BABYLON: ${detail}`);
+        setMessage(detail);
+        setActiveTab("console");
+      }
+    });
+
+    return () => {
+      disposed = true;
+      viewport?.dispose();
+      if (babylonViewportRef.current === viewport) babylonViewportRef.current = null;
+      if (host) host.replaceChildren();
+    };
+  }, [project, viewMode, engineMode]);
+
+  useEffect(() => {
+    if (engineMode === "babylon") {
+      babylonViewportRef.current?.setPlayback(isPlaying, activeClipId);
+    }
+  }, [engineMode, isPlaying, activeClipId]);
 
   function saveProject() {
     if (!project) return;
@@ -1047,25 +1114,49 @@ function Studio() {
         <section className="forge-viewport-panel flex min-h-[52vh] flex-col border-b border-white/10 lg:min-h-0 lg:overflow-hidden lg:border-b-0 lg:border-r">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#0d141c] px-4 py-3">
             <div>
-              <div className="text-xs font-semibold">3D Viewport</div>
+              <div className="text-xs font-semibold">3D Viewport <span className="ml-2 font-mono text-[10px] text-[#83f0ce]">{engineMode === "babylon" ? `MVM BABYLON · ${babylonBackend}` : "THREE.JS"}</span></div>
               <div className="mt-1 text-[10px] text-slate-500">
                 Drag to orbit · pinch/scroll to zoom · right-drag to pan
               </div>
             </div>
-            <div className="flex rounded-lg border border-white/10 p-1">
-              {(["material", "solid", "wireframe"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => setViewMode(mode)}
-                  className={`rounded-md px-2 py-1.5 text-[10px] capitalize cursor-pointer ${
-                    viewMode === mode
-                      ? "bg-[#83f0ce]/15 text-[#83f0ce]"
-                      : "text-slate-500 hover:text-slate-200"
-                  }`}
-                >
-                  {mode}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex rounded-lg border border-white/10 p-1">
+                {([
+                  ["babylon", "MVM BABYLON"],
+                  ["three", "Three.js"],
+                ] as const).map(([engine, label]) => (
+                  <button
+                    key={engine}
+                    type="button"
+                    onClick={() => setEngineMode(engine)}
+                    aria-pressed={engineMode === engine}
+                    className={`rounded-md px-2 py-1.5 text-[10px] cursor-pointer transition-colors ${
+                      engineMode === engine
+                        ? "bg-[#83f0ce]/15 text-[#83f0ce]"
+                        : "text-slate-500 hover:text-slate-200"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex rounded-lg border border-white/10 p-1">
+                {(["material", "solid", "wireframe"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setViewMode(mode)}
+                    aria-pressed={viewMode === mode}
+                    className={`rounded-md px-2 py-1.5 text-[10px] capitalize cursor-pointer ${
+                      viewMode === mode
+                        ? "bg-[#83f0ce]/15 text-[#83f0ce]"
+                        : "text-slate-500 hover:text-slate-200"
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
