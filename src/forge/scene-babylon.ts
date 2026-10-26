@@ -701,6 +701,7 @@ export async function mountBabylonViewport(
       activeCamera = fallback;
     }
     activeCamera?.attachControl(canvas, true);
+    if (!scene.environmentTexture) addEnvironment(scene, project, options.onWarning);
     if (project.scene.grid) makeGrid(scene);
     makeGround(scene);
     for (const group of scene.animationGroups) {
@@ -922,17 +923,7 @@ export async function mountBabylonViewport(
         activeCamera = fallback;
       }
       activeCamera.attachControl(canvas, true);
-      if (!scene.environmentTexture) {
-        try {
-          scene.environmentTexture = CubeTexture.CreateFromPrefilteredData(
-            "https://assets.babylonjs.com/environments/environmentSpecular.env",
-            scene,
-          );
-          scene.environmentIntensity = 0.85;
-        } catch {
-          options.onWarning?.("MVM BABYLON could not initialize the default environment map; using scene lights only.");
-        }
-      }
+      if (!scene.environmentTexture) addEnvironment(scene, project, options.onWarning);
       if (project.scene.grid) makeGrid(scene);
       makeGround(scene);
       clipMap = new Map();
