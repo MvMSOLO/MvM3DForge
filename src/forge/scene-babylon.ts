@@ -18,7 +18,6 @@ import {
   Quaternion,
   RawTexture,
   Scene,
-  SceneSerializer,
   ShadowGenerator,
   SpotLight,
   Texture,
@@ -32,6 +31,7 @@ import { rasterizeTexture } from "./textures.ts";
 import { LoadAssetContainerAsync, LoadSceneAsync } from "@babylonjs/core/Loading/sceneLoader.js";
 import "@babylonjs/core/Loading/Plugins/babylonFileLoader.js";
 import { GLTF2Export } from "@babylonjs/serializers";
+import { SceneSerializer } from "@babylonjs/core/Misc/sceneSerializer.js";
 import { executeBabylonCodeInIsolatedWorker, executeBabylonCodeInScene, ensureBabylonLoaders } from "./sdk/execute-babylon.ts";
 import { issue } from "./errors.ts";
 import type { RunResult } from "./types.ts";
@@ -857,16 +857,23 @@ export async function mountBabylonViewport(
         throw new Error("MVM BABYLON viewport has already been disposed.");
       }
 
+      // Preserve the original replace-on-run behavior: each script starts with a fresh scene,
+      // rather than silently accumulating geometry from the previous execution.
+      const draft = new Scene(engine);
+      draft.useRightHandedSystem = true;
+      draft.clearColor = new Color4(0.035, 0.05, 0.07, 1);
       let initialScene: Record<string, unknown>;
       try {
-        initialScene = await SceneSerializer.SerializeAsync(scene) as Record<string, unknown>;
+        initialScene = await SceneSerializer.SerializeAsync(draft) as Record<string, unknown>;
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Could not serialize the current Babylon scene.";
+        const message = error instanceof Error ? error.message : "Could not serialize an empty Babylon scene.";
         const problem = issue("MVM_E_BABYLON_SCENE_SNAPSHOT", message, {
-          recoveryHint: "Remove unsupported scene metadata or assets and try again.",
+          recoveryHint: "Check the Babylon installation and try again.",
         });
+        draft.dispose();
         return { ok: false, error: problem, logs: [], issues: [problem] };
       }
+      draft.dispose();
 
       // User-authored JavaScript is never executed in the Studio page realm.
       // A timed worker runs it against Babylon's NullEngine, then the real GPU
@@ -915,6 +922,17 @@ export async function mountBabylonViewport(
         activeCamera = fallback;
       }
       activeCamera.attachControl(canvas, true);
+      if (!scene.environmentTexture) {
+        try {
+          scene.environmentTexture = CubeTexture.CreateFromPrefilteredData(
+            "https://assets.babylonjs.com/environments/environmentSpecular.env",
+            scene,
+          );
+          scene.environmentIntensity = 0.85;
+        } catch {
+          options.onWarning?.("MVM BABYLON could not initialize the default environment map; using scene lights only.");
+        }
+      }
       if (project.scene.grid) makeGrid(scene);
       makeGround(scene);
       clipMap = new Map();
