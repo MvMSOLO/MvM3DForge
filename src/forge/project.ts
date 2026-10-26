@@ -11,6 +11,7 @@ export function applyScriptPatch(project: Project, patch: ScriptPatch): Project 
   // Scene replacement is explicit when objects are added; an intentional empty scene uses clear().
   const mutation = patch.sceneMutation ?? (patch.objects.length > 0 ? "replace" : "none");
   const preserveScriptState = mutation === "none";
+  const nativeBabylon = patch.engine === "babylon";
   const objects = nativeBabylon
     ? patch.objects
     : preserveScriptState
@@ -27,7 +28,6 @@ export function applyScriptPatch(project: Project, patch: ScriptPatch): Project 
       ? project.clips
       : [...project.clips.filter((clip) => clip.source !== "script"), ...patch.clips];
 
-  const nativeBabylon = patch.engine === "babylon";
   return {
     ...project,
     ...(patch.engine ? { engine: patch.engine } : {}),
