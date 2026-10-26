@@ -11,18 +11,31 @@ export function applyScriptPatch(project: Project, patch: ScriptPatch): Project 
   // Scene replacement is explicit when objects are added; an intentional empty scene uses clear().
   const mutation = patch.sceneMutation ?? (patch.objects.length > 0 ? "replace" : "none");
   const preserveScriptState = mutation === "none";
-  const objects = preserveScriptState
-    ? project.objects
-    : [...project.objects.filter((node) => node.source !== "script"), ...patch.objects];
-  const textures = preserveScriptState && patch.textures.length === 0
-    ? project.textures
-    : [...project.textures.filter((tex) => tex.source !== "script"), ...patch.textures];
-  const clips = preserveScriptState && patch.clips.length === 0
-    ? project.clips
-    : [...project.clips.filter((clip) => clip.source !== "script"), ...patch.clips];
+  const nativeBabylon = patch.engine === "babylon";
+  const objects = nativeBabylon
+    ? patch.objects
+    : preserveScriptState
+      ? project.objects
+      : [...project.objects.filter((node) => node.source !== "script"), ...patch.objects];
+  const textures = nativeBabylon
+    ? patch.textures
+    : preserveScriptState && patch.textures.length === 0
+      ? project.textures
+      : [...project.textures.filter((tex) => tex.source !== "script"), ...patch.textures];
+  const clips = nativeBabylon
+    ? patch.clips
+    : preserveScriptState && patch.clips.length === 0
+      ? project.clips
+      : [...project.clips.filter((clip) => clip.source !== "script"), ...patch.clips];
 
   return {
     ...project,
+    ...(patch.engine ? { engine: patch.engine } : {}),
+    ...(patch.nativeBabylonScene !== undefined
+      ? { nativeBabylonScene: patch.nativeBabylonScene }
+      : patch.engine === undefined && project.engine === "three"
+        ? { nativeBabylonScene: null }
+        : {}),
     name: patch.projectName ?? project.name,
     objects,
     textures,
@@ -81,6 +94,10 @@ export function migrateProject(raw: unknown): Project {
   const scene = { ...defaultSceneSettings(), ...(data.scene ?? {}) };
   scene.camera = { ...defaultSceneSettings().camera, ...(data.scene?.camera ?? {}) };
   return {
+    engine: data.engine === "babylon" || data.engine === "three" ? data.engine : undefined,
+    nativeBabylonScene: data.nativeBabylonScene && typeof data.nativeBabylonScene === "object" && !Array.isArray(data.nativeBabylonScene)
+      ? data.nativeBabylonScene as Record<string, unknown>
+      : null,
     id: typeof data.id === "string" ? data.id : crypto.randomUUID(),
     name: typeof data.name === "string" && data.name.trim() ? data.name : "Imported",
     schemaVersion: SCHEMA_VERSION,

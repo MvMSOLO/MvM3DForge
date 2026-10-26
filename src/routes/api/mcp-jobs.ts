@@ -5,6 +5,7 @@ import { applyScriptPatch } from "@/forge/project.ts";
 import type { Project, ScriptPatch } from "@/forge/types.ts";
 import { BUDGET_CEILINGS, LIMITS } from "@/forge/limits.ts";
 import { validateScene } from "@/forge/validate.ts";
+import { validateNativeBabylonScene } from "@/forge/native-babylon-validation.ts";
 import {
   claimNextMcpExecutionJob, completeMcpExecutionJob, failMcpExecutionJob,
   getMcpExecutionJob, recordMcpExecutionResult, type McpExecutionJob,
@@ -106,6 +107,10 @@ async function handleExecutionResult(userId: string, job: McpExecutionJob, body:
   const patch = patchValue as ScriptPatch;
   if (!Array.isArray(patch.objects) || !Array.isArray(patch.textures) || !Array.isArray(patch.clips) || patch.objects.length > BUDGET_CEILINGS.maxObjects || patch.textures.length > BUDGET_CEILINGS.maxTextures) {
     return json({ error: "Script patch exceeds the hard scene or texture budget." }, 400);
+  }
+  if (patch.engine === "babylon") {
+    const nativeSceneError = validateNativeBabylonScene(patch.nativeBabylonScene);
+    if (nativeSceneError) return json({ error: nativeSceneError }, 400);
   }
   let candidate: Project;
   try {
