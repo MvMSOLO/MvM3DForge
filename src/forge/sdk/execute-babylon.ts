@@ -286,3 +286,131 @@ export async function executeBabylonUserCode(code: string): Promise<RunResult> {
     engine.dispose();
   }
 }
+
+const NATIVE_BABYLON_WORKER_TIMEOUT_MS = 20_000;
+
+/**
+ * Runs author-authored native Babylon code in a dedicated worker so code cannot directly
+ * access the Studio window, DOM, cookies, or local/session storage. The main viewport
+ * remains responsible for rendering the returned serialized scene on its actual GPU engine.
+ *
+ * This is a practical isolation boundary, not a claim of a fully hostile-code-proof sandbox:
+ * remote HTTPS GETs are permitted for asset loading and must never carry app credentials.
+ */
+export async function executeBabylonCodeInIsolatedWorker(
+  code: string,
+  initialScene: Record<string, unknown>,
+): Promise<RunResult> {
+  const fail = (code: string, message: string, recoveryHint: string): RunResult => {
+    const problem = issue(code, message, { recoveryHint });
+    return { ok: false, error: problem, logs: [], issues: [problem] };
+  };
+
+  if (typeof code !== "string") {
+    return fail("MVM_E_ARGUMENT_TYPE", "Babylon code must be a string.", "Supply a JavaScript string.");
+  }
+  if (code.length > LIMITS.maxCodeChars) {
+    return fail(
+      "MVM_E_CODE_LIMIT",
+      `Code is ${code.length} characters. Limit is ${LIMITS.maxCodeChars}.`,
+      "Split the script into smaller focused operations.",
+    );
+  }
+  if (typeof Worker === "undefined") {
+    return fail(
+      "MVM_E_BABYLON_WORKER_UNAVAILABLE",
+      "This browser does not support the isolated Babylon worker.",
+      "Use a current desktop browser with module Worker support. Code will not fall back to the page realm.",
+    );
+  }
+
+  let sceneJson: string;
+  try {
+    sceneJson = JSON.stringify(initialScene);
+  } catch {
+    return fail(
+      "MVM_E_NATIVE_SCENE_LIMIT",
+      "The current native Babylon scene cannot be serialized for isolated execution.",
+      "Remove unsupported scene metadata and try again.",
+    );
+  }
+  if (!sceneJson || sceneJson.length > MAX_NATIVE_PAYLOAD_CHARS) {
+    return fail(
+      "MVM_E_NATIVE_SCENE_LIMIT",
+      `The current native scene exceeds the ${MAX_NATIVE_PAYLOAD_CHARS}-character isolated execution limit.`,
+      "Reduce embedded texture/model size or split the scene into smaller projects.",
+    );
+  }
+
+  return new Promise<RunResult>((resolve) => {
+    const requestId = crypto.randomUUID();
+    let settled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let worker: Worker;
+
+    const finish = (result: RunResult) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      worker.terminate();
+      resolve(result);
+    };
+
+    try {
+      worker = new Worker(new URL("./babylon-runtime.worker.ts", import.meta.url), {
+        type: "module",
+        name: "mvm-babylon-runtime",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The Babylon worker could not start.";
+      resolve(fail(
+        "MVM_E_BABYLON_WORKER_START",
+        message,
+        "Check browser worker support and the deployed worker asset. Unsafe page-realm fallback is disabled.",
+      ));
+      return;
+    }
+
+    timeoutId = setTimeout(() => finish(fail(
+      "MVM_E_BABYLON_TIMEOUT",
+      `Native Babylon script exceeded the ${NATIVE_BABYLON_WORKER_TIMEOUT_MS / 1000}-second execution deadline; the worker was terminated.`,
+      "Reduce procedural geometry, avoid unbounded loops, or import complex assets through the Studio asset workflow.",
+    )), NATIVE_BABYLON_WORKER_TIMEOUT_MS);
+
+    worker.onmessage = (event: MessageEvent<{ type?: string; requestId?: string; result?: RunResult }>) => {
+      const data = event.data;
+      if (!data || data.type !== "result" || data.requestId !== requestId || !data.result) return;
+      finish(data.result);
+    };
+    worker.onerror = (event) => {
+      event.preventDefault();
+      finish(fail(
+        "MVM_E_BABYLON_WORKER",
+        event.message || "The isolated Babylon runtime stopped unexpectedly.",
+        "Check the runtime logs and make sure the script uses supported Babylon APIs.",
+      ));
+    };
+    worker.onmessageerror = () => finish(fail(
+      "MVM_E_BABYLON_WORKER_MESSAGE",
+      "The isolated Babylon runtime returned data the Studio could not decode.",
+      "Reduce scene payload size and retry.",
+    ));
+
+    try {
+      worker.postMessage({
+        type: "run",
+        requestId,
+        code,
+        initialScene,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not send the scene to the Babylon worker.";
+      finish(fail(
+        "MVM_E_BABYLON_WORKER_MESSAGE",
+        message,
+        "Ensure the scene is serializable and remains below the native scene payload limit.",
+      ));
+    }
+  });
+}
+
