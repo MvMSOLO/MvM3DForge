@@ -182,7 +182,7 @@ async function loadTextureAsset(
     texture = await new Promise<Texture>((resolve, reject) => {
       let created: Texture;
       created = new Texture(
-        asset.dataUrl,
+        asset.dataUrl ?? null,
         scene,
         false,
         false,
@@ -295,7 +295,8 @@ async function createMaterial(
           material.clearCoat.texture = texture;
           break;
         case "clearcoatRoughness":
-          material.clearCoat.roughnessTexture = texture;
+          material.clearCoat.useRoughnessFromMainTexture = false;
+          material.clearCoat.textureRoughness = texture;
           break;
         case "transmission":
           material.subSurface.refractionIntensityTexture = texture;
@@ -415,7 +416,7 @@ function applyTransform(node: SceneNode, object: TransformNode): void {
   );
   object.scaling.copyFrom(vector3(node.scale));
   object.setEnabled(node.visible);
-  object.isPickable = true;
+  if (object instanceof Mesh) object.isPickable = true;
 }
 
 function makeGrid(scene: Scene): void {
