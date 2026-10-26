@@ -189,19 +189,26 @@ export async function executeBabylonCodeInScene(
 
   try {
     await ensureBabylonLoaders();
-    const scriptConsole = {
-      log: (...args: unknown[]) => pushLog(logs, "log", args),
-      info: (...args: unknown[]) => pushLog(logs, "info", args),
-      debug: (...args: unknown[]) => pushLog(logs, "log", args),
-      warn: (...args: unknown[]) => pushLog(logs, "warn", args),
-      error: (...args: unknown[]) => pushLog(logs, "error", args),
+    type NativeScriptConsole = {
+      log: (...args: unknown[]) => void;
+      info: (...args: unknown[]) => void;
+      debug: (...args: unknown[]) => void;
+      warn: (...args: unknown[]) => void;
+      error: (...args: unknown[]) => void;
+    };
+    const scriptConsole: NativeScriptConsole = {
+      log: (...args) => pushLog(logs, "log", args),
+      info: (...args) => pushLog(logs, "info", args),
+      debug: (...args) => pushLog(logs, "log", args),
+      warn: (...args) => pushLog(logs, "warn", args),
+      error: (...args) => pushLog(logs, "error", args),
     };
     const fn = new Function("BABYLON", "engine", "scene", "canvas", "console", `"use strict";\n${code}`) as (
       babylon: typeof BABYLON,
       activeEngine: BabylonCore.AbstractEngine,
       activeScene: BabylonCore.Scene,
       activeCanvas: HTMLCanvasElement | null,
-      scriptConsole: typeof scriptConsole,
+      activeConsole: NativeScriptConsole,
     ) => unknown;
     const returned = fn(BABYLON, engine, scene, canvas, scriptConsole);
     if (returned && typeof (returned as Promise<unknown>).then === "function") await returned;
@@ -269,12 +276,7 @@ export async function executeBabylonCodeInScene(
 
 /** Headless runner for Node tests and server-side tooling. It uses Babylon's real NullEngine. */
 export async function executeBabylonUserCode(code: string): Promise<RunResult> {
-  const engine = new BabylonCore.NullEngine({
-    renderWidth: 1280,
-    renderHeight: 720,
-    textureSize: 1024,
-    deterministicLockstep: false,
-  });
+  const engine = new BabylonCore.NullEngine();
   const scene = new BabylonCore.Scene(engine);
   scene.clearColor = new BabylonCore.Color4(0.035, 0.05, 0.07, 1);
   try {
