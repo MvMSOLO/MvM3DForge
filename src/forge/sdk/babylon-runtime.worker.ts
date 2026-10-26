@@ -42,9 +42,10 @@ function lockWorkerApi(name: string): void {
 
 /**
  * This runtime never receives a Window, Document, cookie jar, or app storage object.
- * It also denies same-origin requests and network write transports. Remote HTTPS GET
- * remains available for user-selected Babylon texture/model assets and never carries
- * same-origin credentials. The parent terminates the worker after a hard deadline.
+ * It denies same-origin requests and network write transports. Cross-origin HTTPS GET
+ * requests remain possible without credentials, but are not restricted to asset paths.
+ * The parent terminates the worker after a hard deadline; this is reduced access, not a
+ * hardened hostile-code sandbox.
  */
 function hardenWorkerNetwork(): void {
   const originalFetch = workerScope.fetch.bind(globalThis);
