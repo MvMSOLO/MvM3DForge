@@ -939,8 +939,10 @@ export async function mountBabylonViewport(
         throw new Error("Babylon's native GLB exporter did not return a .glb binary.");
       }
       if (file instanceof Blob) return file;
-      if (typeof file === "string") return new Blob([file], { type: "model/gltf-binary" });
-      return new Blob([file], { type: "model/gltf-binary" });
+      if (typeof file === "string") {
+        throw new Error("Babylon's exporter returned JSON text where a binary GLB was required.");
+      }
+      return file;
     },
     dispose: () => {
       if (disposed) return;
