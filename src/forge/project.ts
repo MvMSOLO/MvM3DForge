@@ -31,7 +31,11 @@ export function applyScriptPatch(project: Project, patch: ScriptPatch): Project 
   return {
     ...project,
     ...(patch.engine ? { engine: patch.engine } : {}),
-    ...(patch.nativeBabylonScene !== undefined ? { nativeBabylonScene: patch.nativeBabylonScene } : {}),
+    ...(patch.nativeBabylonScene !== undefined
+      ? { nativeBabylonScene: patch.nativeBabylonScene }
+      : patch.engine === undefined && project.engine === "three"
+        ? { nativeBabylonScene: null }
+        : {}),
     name: patch.projectName ?? project.name,
     objects,
     textures,
