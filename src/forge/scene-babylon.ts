@@ -30,7 +30,7 @@ import type { MaterialSpec, Project, SceneNode, TextureAsset, ViewMode } from ".
 import { rasterizeTexture } from "./textures.ts";
 import { LoadAssetContainerAsync, LoadSceneAsync } from "@babylonjs/core/Loading/sceneLoader.js";
 import "@babylonjs/core/Loading/Plugins/babylonFileLoader.js";
-import { GLTF2Export } from "@babylonjs/serializers/glTF.js";
+import { GLTF2Export } from "@babylonjs/serializers";
 import { executeBabylonCodeInScene, ensureBabylonLoaders } from "./sdk/execute-babylon.ts";
 import type { RunResult } from "./types.ts";
 
