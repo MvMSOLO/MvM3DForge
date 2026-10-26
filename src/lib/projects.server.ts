@@ -13,6 +13,8 @@ export interface DBProjectRow {
   objects_json: string;
   clips_json: string;
   textures_json: string;
+  engine?: string | null;
+  native_babylon_scene_json?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -26,16 +28,24 @@ export async function saveProjectToDb(userId: string, project: Project): Promise
   const objectsJson = JSON.stringify(updatedProject.objects);
   const clipsJson = JSON.stringify(updatedProject.clips);
   const texturesJson = JSON.stringify(updatedProject.textures);
+  const engine = updatedProject.engine === "babylon" || updatedProject.engine === "three"
+    ? updatedProject.engine
+    : null;
+  const nativeBabylonSceneJson = updatedProject.nativeBabylonScene
+    ? JSON.stringify(updatedProject.nativeBabylonScene)
+    : null;
 
   const persisted = await sql<{ id: string; user_id: string }>`
     INSERT INTO projects (
       id, user_id, name, schema_version, api_version, app_version,
-      code, scene_json, objects_json, clips_json, textures_json, created_at, updated_at
+      code, scene_json, objects_json, clips_json, textures_json,
+      engine, native_babylon_scene_json, created_at, updated_at
     )
     VALUES (
       ${updatedProject.id}, ${userId}, ${updatedProject.name}, ${updatedProject.schemaVersion},
       ${updatedProject.apiVersion}, ${updatedProject.appVersion}, ${updatedProject.code},
-      ${sceneJson}, ${objectsJson}, ${clipsJson}, ${texturesJson}, ${updatedProject.createdAt}, ${now}
+      ${sceneJson}, ${objectsJson}, ${clipsJson}, ${texturesJson},
+      ${engine}, ${nativeBabylonSceneJson}, ${updatedProject.createdAt}, ${now}
     )
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name,
@@ -44,6 +54,8 @@ export async function saveProjectToDb(userId: string, project: Project): Promise
       objects_json = EXCLUDED.objects_json,
       clips_json = EXCLUDED.clips_json,
       textures_json = EXCLUDED.textures_json,
+      engine = EXCLUDED.engine,
+      native_babylon_scene_json = EXCLUDED.native_babylon_scene_json,
       updated_at = EXCLUDED.updated_at
     WHERE projects.user_id = EXCLUDED.user_id
     RETURNING id, user_id
@@ -69,6 +81,11 @@ export async function loadProjectFromDb(userId: string, projectId: string): Prom
     const objects: SceneNode[] = JSON.parse(row.objects_json);
     const clips: AnimClip[] = JSON.parse(row.clips_json || "[]");
     const textures: TextureAsset[] = JSON.parse(row.textures_json || "[]");
+    const engine = row.engine === "babylon" || row.engine === "three" ? row.engine : undefined;
+    const nativeValue = row.native_babylon_scene_json ? JSON.parse(row.native_babylon_scene_json) as unknown : null;
+    const nativeBabylonScene = nativeValue && typeof nativeValue === "object" && !Array.isArray(nativeValue)
+      ? nativeValue as Record<string, unknown>
+      : null;
 
     return {
       id: row.id,
@@ -81,6 +98,8 @@ export async function loadProjectFromDb(userId: string, projectId: string): Prom
       code: row.code,
       codeLanguage: "javascript",
       author: row.user_id,
+      ...(engine ? { engine } : {}),
+      ...(nativeBabylonScene ? { nativeBabylonScene } : {}),
       objects,
       textures,
       clips,
