@@ -1449,7 +1449,7 @@ function Studio() {
                   <div className="text-xs font-semibold">main.mvm.js</div>
                   <div className="mt-1 text-[10px] text-slate-500">
                     {engineMode === "babylon"
-                      ? "Isolated worker · DOM/session hidden · HTTPS asset GET only · 20s limit"
+                      ? "Isolated worker · DOM/session hidden · cross-origin HTTPS GET · 20s limit"
                       : "Restricted SDK · no arbitrary network access"}
                   </div>
                 </div>
