@@ -25,7 +25,7 @@ import {
   VertexData,
   WebGPUEngine,
 } from "@babylonjs/core";
-import type { AnimClip, MaterialSpec, Project, SceneNode, TextureAsset, ViewMode } from "./types.ts";
+import type { MaterialSpec, Project, SceneNode, TextureAsset, ViewMode } from "./types.ts";
 import { rasterizeTexture } from "./textures.ts";
 
 /**
@@ -180,7 +180,8 @@ async function loadTextureAsset(
     );
   } else if (asset.dataUrl) {
     texture = await new Promise<Texture>((resolve, reject) => {
-      const created = new Texture(
+      let created: Texture;
+      created = new Texture(
         asset.dataUrl,
         scene,
         false,
@@ -254,6 +255,7 @@ async function createMaterial(
       | "emissive"
       | "clearcoat"
       | "clearcoatRoughness"
+      | "transmission"
       | "thickness"
       | "sheen",
     colorData = false,
@@ -292,6 +294,10 @@ async function createMaterial(
         case "clearcoatRoughness":
           material.clearCoat.roughnessTexture = texture;
           break;
+        case "transmission":
+          material.subSurface.refractionIntensityTexture = texture;
+          material.subSurface.isRefractionEnabled = true;
+          break;
         case "thickness":
           material.subSurface.thicknessTexture = texture;
           break;
@@ -313,7 +319,8 @@ async function createMaterial(
     assign(state.textureIds.emissiveMapId, "emissive", true),
     assign(state.textureIds.clearcoatMapId, "clearcoat"),
     assign(state.textureIds.clearcoatRoughnessMapId, "clearcoatRoughness"),
-    assign(state.textureIds.thicknessMapId ?? state.textureIds.transmissionMapId, "thickness"),
+    assign(state.textureIds.transmissionMapId, "transmission"),
+    assign(state.textureIds.thicknessMapId, "thickness"),
     assign(state.textureIds.sheenColorMapId, "sheen", true),
   ]);
   return material;
@@ -448,7 +455,7 @@ function makeGround(scene: Scene): Mesh {
     height: 200,
     sideOrientation: Mesh.DOUBLESIDE,
   }, scene);
-  ground.rotation.x = Math.PI / 2;
+  ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.025;
   const material = new PBRMaterial("MVM Ground · Matte", scene);
   material.albedoColor = color3("#111820");
@@ -736,7 +743,7 @@ export async function mountBabylonViewport(
   camera.attachControl(canvas, true);
 
   const clipMap = installAnimations(project, objectsById);
-  let activeAnimatables: ReturnType<Scene["beginDirectAnimation"]>[] = [];
+  let activeAnimatables: Array<{ stop: () => void }> = [];
   const setPlayback = (playing: boolean, clipId: string | null) => {
     scene.stopAllAnimations();
     activeAnimatables = [];
