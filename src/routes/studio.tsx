@@ -1448,7 +1448,9 @@ function Studio() {
                 <div>
                   <div className="text-xs font-semibold">main.mvm.js</div>
                   <div className="mt-1 text-[10px] text-slate-500">
-                    Restricted SDK · no arbitrary network access
+                    {engineMode === "babylon"
+                      ? "Isolated worker · DOM/session hidden · HTTPS asset GET only · 20s limit"
+                      : "Restricted SDK · no arbitrary network access"}
                   </div>
                 </div>
                 <button
@@ -1468,7 +1470,7 @@ function Studio() {
                 placeholder="// Write MVM SDK code here…"
               />
               <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-[10px] leading-5 text-slate-500">
-                <span>{engineMode === "babylon" ? "JavaScript · native BABYLON runtime · GPU scene · native GLB" : "JavaScript · MVM SDK + Three.js compatibility runtime"}</span>
+                <span>{engineMode === "babylon" ? "JavaScript · isolated BABYLON worker · WebGPU/WebGL viewport · native GLB" : "JavaScript · MVM SDK + Three.js compatibility runtime"}</span>
                 <button
                   onClick={() => void copyAIContext()}
                   className="inline-flex items-center gap-1.5 text-[#83f0ce] hover:text-white cursor-pointer"
