@@ -345,13 +345,12 @@ export async function executeBabylonCodeInIsolatedWorker(
   return new Promise<RunResult>((resolve) => {
     const requestId = crypto.randomUUID();
     let settled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let worker: Worker;
 
     const finish = (result: RunResult) => {
       if (settled) return;
       settled = true;
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
       worker.terminate();
       resolve(result);
     };
@@ -371,7 +370,7 @@ export async function executeBabylonCodeInIsolatedWorker(
       return;
     }
 
-    timeoutId = setTimeout(() => finish(fail(
+    const timeoutId = setTimeout(() => finish(fail(
       "MVM_E_BABYLON_TIMEOUT",
       `Native Babylon script exceeded the ${NATIVE_BABYLON_WORKER_TIMEOUT_MS / 1000}-second execution deadline; the worker was terminated.`,
       "Reduce procedural geometry, avoid unbounded loops, or import complex assets through the Studio asset workflow.",
