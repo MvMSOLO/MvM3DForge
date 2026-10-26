@@ -28,7 +28,7 @@ import {
 } from "@babylonjs/core";
 import type { MaterialSpec, Project, SceneNode, TextureAsset, ViewMode } from "./types.ts";
 import { rasterizeTexture } from "./textures.ts";
-import { LoadSceneAsync } from "@babylonjs/core/Loading/sceneLoader";
+import { LoadAssetContainerAsync, LoadSceneAsync } from "@babylonjs/core/Loading/sceneLoader";
 import "@babylonjs/core/Loading/Plugins/babylonFileLoader";
 import { GLTF2Export } from "@babylonjs/serializers/glTF";
 import { executeBabylonCodeInScene, ensureBabylonLoaders } from "./sdk/execute-babylon.ts";
@@ -45,6 +45,7 @@ export type BabylonViewportHandle = {
   setPlayback: (playing: boolean, clipId: string | null) => void;
   runCode: (code: string) => Promise<RunResult>;
   exportGlb: () => Promise<Blob>;
+  importGlb: (file: File) => Promise<RunResult>;
 };
 
 export type BabylonViewportOptions = {
@@ -464,25 +465,30 @@ function makeGrid(scene: Scene): void {
   const minorGrid = MeshBuilder.CreateLineSystem("MVM Grid · Minor", { lines: minor }, scene);
   minorGrid.color = color3("#1d2a34");
   minorGrid.isPickable = false;
+  minorGrid.doNotSerialize = true;
   const majorGrid = MeshBuilder.CreateLineSystem("MVM Grid · Major", { lines: major }, scene);
   majorGrid.color = color3("#2a3b47");
   majorGrid.isPickable = false;
+  majorGrid.doNotSerialize = true;
 
   const xAxis = MeshBuilder.CreateLines("MVM Axis · X", {
     points: [new Vector3(-1.5, 0.008, 0), new Vector3(1.5, 0.008, 0)],
   }, scene);
   xAxis.color = color3("#ef7272");
   xAxis.isPickable = false;
+  xAxis.doNotSerialize = true;
   const zAxis = MeshBuilder.CreateLines("MVM Axis · Z", {
     points: [new Vector3(0, 0.008, -1.5), new Vector3(0, 0.008, 1.5)],
   }, scene);
   zAxis.color = color3("#7ba7ff");
   zAxis.isPickable = false;
+  zAxis.doNotSerialize = true;
   const yAxis = MeshBuilder.CreateLines("MVM Axis · Y", {
     points: [new Vector3(0, 0.008, 0), new Vector3(0, 1.5, 0)],
   }, scene);
   yAxis.color = color3("#79d7a4");
   yAxis.isPickable = false;
+  yAxis.doNotSerialize = true;
 }
 
 function makeGround(scene: Scene): Mesh {
@@ -501,6 +507,7 @@ function makeGround(scene: Scene): Mesh {
   ground.material = material;
   ground.receiveShadows = true;
   ground.isPickable = false;
+  ground.doNotSerialize = true;
   return ground;
 }
 
@@ -881,6 +888,31 @@ export async function mountBabylonViewport(
         return result;
       } catch (error) {
         draft.dispose();
+        throw error;
+      }
+    },
+    importGlb: async (file: File) => {
+      if (disposed) throw new Error("MVM BABYLON viewport has already been disposed.");
+      await ensureBabylonLoaders();
+      let container: Awaited<ReturnType<typeof LoadAssetContainerAsync>> | null = null;
+      try {
+        container = await LoadAssetContainerAsync(file, scene, { pluginExtension: ".glb" });
+        container.addAllToScene();
+        const result = await executeBabylonCodeInScene("", scene, engine, canvas);
+        if (!result.ok) {
+          container.removeAllFromScene();
+          container.dispose();
+          return result;
+        }
+        nativeSceneActive = true;
+        activeCamera = scene.activeCamera ?? scene.cameras[0] ?? activeCamera;
+        activeCamera?.attachControl(canvas, true);
+        return result;
+      } catch (error) {
+        if (container) {
+          container.removeAllFromScene();
+          container.dispose();
+        }
         throw error;
       }
     },
