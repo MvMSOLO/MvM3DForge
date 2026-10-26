@@ -18,6 +18,7 @@ import {
   Quaternion,
   RawTexture,
   Scene,
+  SceneSerializer,
   ShadowGenerator,
   SpotLight,
   Texture,
@@ -31,7 +32,8 @@ import { rasterizeTexture } from "./textures.ts";
 import { LoadAssetContainerAsync, LoadSceneAsync } from "@babylonjs/core/Loading/sceneLoader.js";
 import "@babylonjs/core/Loading/Plugins/babylonFileLoader.js";
 import { GLTF2Export } from "@babylonjs/serializers";
-import { executeBabylonCodeInScene, ensureBabylonLoaders } from "./sdk/execute-babylon.ts";
+import { executeBabylonCodeInIsolatedWorker, executeBabylonCodeInScene, ensureBabylonLoaders } from "./sdk/execute-babylon.ts";
+import { issue } from "./errors.ts";
 import type { RunResult } from "./types.ts";
 
 /**
@@ -854,51 +856,73 @@ export async function mountBabylonViewport(
       if (disposed) {
         throw new Error("MVM BABYLON viewport has already been disposed.");
       }
-      const draft = new Scene(engine);
-      draft.useRightHandedSystem = true;
-      draft.clearColor = new Color4(0.035, 0.05, 0.07, 1);
+
+      let initialScene: Record<string, unknown>;
       try {
-        draft.environmentTexture = CubeTexture.CreateFromPrefilteredData(
-          "https://assets.babylonjs.com/environments/environmentSpecular.env",
-          draft,
-        );
-        draft.environmentIntensity = 0.85;
-        const result = await executeBabylonCodeInScene(code, draft, engine, canvas);
-        if (!result.ok) {
-          draft.dispose();
-          return result;
-        }
-        const previous = scene;
-        activeCamera?.detachControl();
-        scene = draft;
-        nativeSceneActive = true;
-        activeCamera = scene.activeCamera ?? scene.cameras[0] ?? null;
-        if (!scene.activeCamera && activeCamera) scene.activeCamera = activeCamera;
-        if (!activeCamera) {
-          const fallback = new ArcRotateCamera(
-            "MVM BABYLON Camera",
-            -Math.PI / 2,
-            Math.PI / 3,
-            8,
-            Vector3.Zero(),
-            scene,
-          );
-          scene.activeCamera = fallback;
-          activeCamera = fallback;
-        }
-        activeCamera.attachControl(canvas, true);
-        if (project.scene.grid) makeGrid(scene);
-        makeGround(scene);
-        clipMap = new Map();
-        activeAnimatables = [];
-        previous.stopAllAnimations();
-        previous.dispose();
-        setPlayback(true, null);
-        return result;
+        initialScene = await SceneSerializer.SerializeAsync(scene) as Record<string, unknown>;
       } catch (error) {
-        draft.dispose();
-        throw error;
+        const message = error instanceof Error ? error.message : "Could not serialize the current Babylon scene.";
+        const problem = issue("MVM_E_BABYLON_SCENE_SNAPSHOT", message, {
+          recoveryHint: "Remove unsupported scene metadata or assets and try again.",
+        });
+        return { ok: false, error: problem, logs: [], issues: [problem] };
       }
+
+      // User-authored JavaScript is never executed in the Studio page realm.
+      // A timed worker runs it against Babylon's NullEngine, then the real GPU
+      // viewport loads the returned serialized scene only after a successful run.
+      const result = await executeBabylonCodeInIsolatedWorker(code, initialScene);
+      if (!result.ok) return result;
+      if (!result.patch.nativeBabylonScene) {
+        const problem = issue("MVM_E_BABYLON_SCENE_MISSING", "The isolated runtime returned no native Babylon scene.", {
+          recoveryHint: "Check the Console and run the script again.",
+        });
+        return { ok: false, error: problem, logs: result.logs, issues: [problem] };
+      }
+
+      let nextScene: Scene;
+      try {
+        await ensureBabylonLoaders();
+        nextScene = await LoadSceneAsync(
+          `data:${JSON.stringify(result.patch.nativeBabylonScene)}`,
+          engine,
+          { pluginExtension: ".babylon" },
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "The GPU viewport could not restore the native scene.";
+        const problem = issue("MVM_E_BABYLON_SCENE_RESTORE", message, {
+          recoveryHint: "The previous scene is unchanged. Inspect unsupported assets/materials and try again.",
+        });
+        return { ok: false, error: problem, logs: result.logs, issues: [problem] };
+      }
+
+      const previous = scene;
+      activeCamera?.detachControl();
+      scene = nextScene;
+      nativeSceneActive = true;
+      activeCamera = scene.activeCamera ?? scene.cameras[0] ?? null;
+      if (!scene.activeCamera && activeCamera) scene.activeCamera = activeCamera;
+      if (!activeCamera) {
+        const fallback = new ArcRotateCamera(
+          "MVM BABYLON Camera",
+          -Math.PI / 2,
+          Math.PI / 3,
+          8,
+          Vector3.Zero(),
+          scene,
+        );
+        scene.activeCamera = fallback;
+        activeCamera = fallback;
+      }
+      activeCamera.attachControl(canvas, true);
+      if (project.scene.grid) makeGrid(scene);
+      makeGround(scene);
+      clipMap = new Map();
+      activeAnimatables = [];
+      previous.stopAllAnimations();
+      previous.dispose();
+      setPlayback(true, null);
+      return result;
     },
     importGlb: async (file: File) => {
       if (disposed) throw new Error("MVM BABYLON viewport has already been disposed.");
