@@ -1,7 +1,7 @@
 import * as BabylonCore from "@babylonjs/core";
 import * as BabylonGUI from "@babylonjs/gui";
-import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
-import { SceneSerializer } from "@babylonjs/core/Misc/sceneSerializer";
+import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic.js";
+import { SceneSerializer } from "@babylonjs/core/Misc/sceneSerializer.js";
 import { ForgeError, errorToIssue, issue } from "../errors.ts";
 import { defaultMaterial } from "../materials.ts";
 import { makeNode } from "../nodes.ts";
